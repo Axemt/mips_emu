@@ -1,6 +1,8 @@
 use super::Definitions::{RelfHeader32,SectionHeader32};
 //use super::Definitions::{to_byte,to_half,to_word};
 use std::panic;
+use std::fs::File;
+use std::io::Read;
 
 pub struct Memory {
 
@@ -82,7 +84,8 @@ pub fn new( v: bool) -> Memory{
 
         let d = dir as usize;
 
-        if d > self.mem_size { self.extend_mem(d-self.mem_size); }
+        //fake having a 4GB memory by dynamically extending on "OOB" accesses
+        //if d+size > self.mem_size { self.extend_mem(d+size-self.mem_size); }
 
         if d+size > self.mem_size { panic!("Tried to access memory address 0x{:08x} but current memory size is 0x{:08x}. Out of bounds",d+size,self.mem_size); }
         
@@ -132,17 +135,34 @@ pub fn new( v: bool) -> Memory{
 
     }
 
+    pub fn load_bin(&mut self, bin: &str) {
+        let mut f = File::open(bin).unwrap();
+        let mut fBuffer: Vec<u8> = Vec::new();
+
+        let fLen = f.metadata().unwrap().len();
+        
+        //read contents of file into buffer
+        f.read_to_end(&mut fBuffer).unwrap();
+
+
+        //raw copy into mem
+        self.extend_mem_FAST(fLen as usize);
+
+        let mut offset = 0;
+        for b in &fBuffer {
+            self.mem_array[offset] = *b;
+            offset += 1;
+        }
+    }
+
+
     pub fn load_RELF(&mut self, RELF: &str)  -> u32 {
 
-
-        use std::fs::File;
-        use std::io::Read;
 
         //read file to descriptor, allocate buffer as Vec
         let mut f = File::open(RELF).unwrap();
         let mut fBuffer: Vec<u8> = Vec::new();
 
-        if fBuffer.len() > f.metadata().unwrap().len() as usize {println!("WARNING!")}
         
         //read contents of file into buffer
         f.read_to_end(&mut fBuffer).unwrap();

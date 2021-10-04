@@ -28,11 +28,28 @@ impl Core {
      * Loads a RELF executable into memory and sets PC
      * 
      * ARGS:
+     * 
      *  path: Path to executable 
     */
     pub fn load_RELF(&mut self, path: &str) {
 
         self.PC = self.mem.load_RELF(path);
+
+    }
+
+    /**
+     * Loads a raw binary into memory and sets PC
+     * 
+     * ARGS:
+     * 
+     *  path: Path to binary file
+     * 
+     *  entry: PC to start execution
+    */
+    pub fn load_bin(&mut self, path: &str, entry: u32) {
+
+        self.PC = entry;
+        self.mem.load_bin(path);
 
     }
 
@@ -95,6 +112,11 @@ impl Core {
 
 
     fn handoff_R(&mut self,code: u32,) {
+
+        if code == 0x00000000 {
+            if self.verbose { println!("\tR-type: NOP"); }
+            return;
+        }
 
         let rs   = self.reg[((code & 0b00000011111000000000000000000000) >> 21) as usize];
         let rt   = self.reg[((code & 0b00000000000111110000000000000000) >> 16) as usize];

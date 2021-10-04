@@ -1,5 +1,6 @@
 mod libs;
 use libs::Core;
+use std::panic;
 
 //import macro for pack/unpack
 #[macro_use]
@@ -11,7 +12,7 @@ use clap::{Arg,App};
 fn main() {
 
     let matches = App::new("Mips Runtime")
-                    .version("0.5")
+                    .version("0.7 built on Oct 4th, 2021" )
                     .author("Axemt <github.com/Axemt>")
                     .about("A MIPS R3000 32b emulator")
                     .arg(Arg::with_name("File")
@@ -29,15 +30,49 @@ fn main() {
                              .value_name("V")
                              .takes_value(false)
                             )
+                    .arg(Arg::with_name("Entry")
+                             .help("Set a custom entrypoint (Required for .bin files); If using a hex value, prefix with '0x'")
+                             .short("e")
+                             .long("Entry")
+                             .value_name("E")
+                             .takes_value(true)
+                            )
                             
                     .get_matches();
 
     let v = matches.is_present("Verbose");
     let filepath = matches.value_of("File").unwrap();
-    
+
+
     let mut cpu = Core::new(v);
 
-    cpu.load_RELF(filepath);
+    if filepath.ends_with(".relf") {
+
+        cpu.load_RELF(filepath);
+
+    } else { //raw .bin file
+
+        if matches.is_present("Entry") {
+
+
+            let s = matches.value_of("Entry").unwrap();
+
+            let entry: u32;
+
+            if s.starts_with("0x") | s.starts_with("0X") {
+                entry = u32::from_str_radix(s.trim_start_matches("0x").trim_start_matches("0X"),16).unwrap();
+            } else {
+                entry = s.parse::<u32>().unwrap();
+            }
+            
+            cpu.load_bin(filepath,entry);
+            
+        } else {
+            panic!("A raw binary file was detected, but no entrypoint was given");
+        }
+
+    }
+
 
     cpu.run();
 
