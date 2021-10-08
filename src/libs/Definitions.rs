@@ -90,18 +90,67 @@ pub struct SectionHeader32 {
 
     }
 
+/**
+ *  Converts a sequence of four u8/bytes into a u32/word as follows
+ * 
+ *      got = Definitions::to_word(&[1,255,1,255]);
+ *      assert_eq!(0x01ff01ff, got);
+ * 
+ *  The array with bytes [x, y, z, t] is transformed into 0Xxxyyzztt
+ * 
+ *  ARGS:
+ * 
+ *  contents: the array to convert
+ * 
+ *  RETURNS:
+ * 
+ *  the converted word in u32
+ */
 pub fn to_word(contents: &[u8]) -> u32 {
     let word: u32 = contents[3] as u32 | (contents[2] as u32) << 8 | (contents[1] as u32) << 16 | (contents[0]as u32) << 24;
     
     return word;
 }
 
+
+/**
+ *  Converts a sequence of two u8/bytes into a u32/word as follows
+ * 
+ *      got = Definitions::to_half(&[1,255]);
+ *      assert_eq!(0x000001ff, got);
+ * 
+ *  The array with bytes [x, y] is transformed into 0X0000xxyy
+ * 
+ *  ARGS:
+ * 
+ *  contents: the array to convert
+ * 
+ *  RETURNS:
+ * 
+ *  the converted halfword in u32
+ */
 pub fn to_half(contents: &[u8]) -> u32 {
-    let word: u32 = (contents[1] as u32) << 16| (contents[0] as u32) << 24;
+    let word: u32 = (contents[1] as u32)| (contents[0] as u32) << 8;
 
     return word
 }
 
+/**
+ *  Converts a sequence of two u8/bytes into a u32/word as follows
+ * 
+ *      got = Definitions::to_byte(&[255]);
+ *      assert_eq!(0x000000ff, got);
+ * 
+ *  The array with byte [x] is transformed into 0X000000xx
+ * 
+ *  ARGS:
+ * 
+ *  contents: the array to convert
+ * 
+ *  RETURNS:
+ * 
+ *  the converted byte in u32
+ */
 pub fn to_byte(contents: &[u8]) -> u32 {
     let word: u32 = contents[0] as u32;
     
@@ -112,3 +161,24 @@ pub fn to_byte(contents: &[u8]) -> u32 {
 pub const Z_FLAG: u32 = 0;
 pub const S_FLAG: u32 = 1;
 pub const FIN_FLAG: u32 = 4;
+
+
+/**
+ *  TESTS
+ */
+
+
+#[test]
+fn conversions() {
+    let mut got = to_half(&[0,1]);
+    assert_eq!(0x00000001, got);
+
+    got = to_half(&[1,255]);
+    assert_eq!(0x000001ff, got);
+
+    got = to_word(&[0,0,0,1]);
+    assert_eq!(0x00000001,got);
+
+    got = to_word(&[255,0,255,0]);
+    assert_eq!(0xff00ff00,got);
+}

@@ -85,7 +85,7 @@ pub fn new( v: bool) -> Memory{
         let d = dir as usize;
 
         //fake having a 4GB memory by dynamically extending on "OOB" accesses
-        //if d+size > self.mem_size { self.extend_mem(d+size-self.mem_size); }
+        if d+size > self.mem_size { self.extend_mem(d+size-self.mem_size); }
 
         if d+size > self.mem_size { panic!("Tried to access memory address 0x{:08x} but current memory size is 0x{:08x}. Out of bounds",d+size,self.mem_size); }
         
@@ -127,7 +127,6 @@ pub fn new( v: bool) -> Memory{
             } else {
                 to_insert = 0;
             }
-            
             self.mem_array[dir+byte] = to_insert;
             byte = byte + 1;
 
@@ -251,5 +250,62 @@ pub fn new( v: bool) -> Memory{
 
         
     }
+
+}
+
+
+
+/**
+ *  TESTS
+ */
+
+
+
+#[test]
+fn loading() {
+    
+    let entry;
+
+    let mut m: Memory = new(true);
+    entry = m.load_RELF("src/libs/testbins/parsing_more.s.relf");
+
+    assert_eq!(entry,0x00400000);
+    
+    drop(m);
+
+    let mut m: Memory = new(false);
+    let entry = m.load_RELF("src/libs/testbins/testingLS.s.relf");
+
+    assert_eq!(entry,0x00400000);
+}
+
+#[test]
+fn load_store() {
+    let mut m = new(true);
+
+    //store as word...
+    //also implicitly extends mem dynamically
+    m.store(0x00020000, 4, &[0,1]);
+
+    //..but retrieve as half
+    let got = m.load(0x00020000, 2);
+
+    assert_eq!([0,1],got);
+}
+
+#[test]
+fn extend_mem_all() {
+
+    let mut m: Memory = new(true);
+
+    m.extend_mem_FAST(0x700000);
+
+    assert_eq!(m.mem_size, m.mem_array.len());
+    assert_eq!(m.mem_array.len(), 0x700000);
+
+    m.extend_mem(0x80);
+
+    assert_eq!(m.mem_size,m.mem_array.len());
+    assert_eq!(m.mem_array.len(),0x700080);
 
 }

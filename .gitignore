@@ -3,3 +3,7 @@
 # Compiler binaries and assembly source files
 *.relf
 *.s
+
+# files used for tests
+/testbins
+Tests.rs

@@ -206,13 +206,13 @@ impl Core {
             },//sb
             0b101001 => {
                 let b = self.reg[rt];
-                let v = vec![(b <<20) as u8,];
+                let v = vec![(b >> 8) as u8, (b & 0x00ff) as u8];
 
                 self.mem.store((rs+imm) as usize, 2, &v);
             },//sh
             0b101011 => {
                 let b = self.reg[rt];
-                let v = vec![b as u8;4];
+                let v = vec![(b & 0xff000000 >> 24) as u8, (b & 0x00ff0000 >> 16) as u8,(b & 0x0000ff00 >> 8) as u8, (b & 0x000000ff) as u8];
 
                 self.mem.store((rs+imm) as usize, 4, &v);
             },//sw
@@ -258,6 +258,7 @@ impl Core {
         match v0 {
 
             3 => {return}
+            4 => {return}
 
             10 => { self.flags |= 1 << Definitions::FIN_FLAG; }
 
@@ -267,4 +268,35 @@ impl Core {
 
     }
 
+}
+
+/**
+ *  TESTS
+ */
+
+
+#[test]
+fn basic() {
+
+    let mut c: Core = new(true);
+
+    c.load_RELF("src/libs/testbins/testingLS.s.relf");
+    c.run();
+
+    
+}
+
+#[test]
+#[should_panic]
+fn panic_on_OOB_access() {
+    let mut c: Core = new(true);
+
+    let base = 0x04;
+    c.mem.store(base, 4, &[0x24,0x08,0x01,0]); //addiu $at, $0, 256 
+    c.mem.store(base+4, 4, &[0x81,0x01,0,0]);  //lb $at, 0($at)
+    //mem_size < 0($at), crash
+
+    c.PC = base as u32;
+
+    c.run();
 }
