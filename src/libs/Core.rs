@@ -1,5 +1,6 @@
 use super::Memory;
 use super::Definitions;
+use super::Definitions::{Byte, Half, Word};
 use std::panic;
 use std::time::Instant;
 
@@ -89,7 +90,7 @@ impl Core {
     fn run_handoff(&mut self, PC: u32) {
 
         //avoid weird tuples in vec::align_to, we know it'll always be aligned
-        let code = Definitions::to_word(self.mem.load(PC,4));
+        let code = Definitions::from_word(self.mem.load(PC,4));
 
         if self.verbose {
             print!("Code: 0x{:01$x?} ",code,8);
@@ -193,11 +194,11 @@ impl Core {
             0b000101 => { if rs != self.reg[rt] {let jtarg = (self.PC) as i32 + ((imm as i32) <<2); self.PC = jtarg as u32;}; },//bne
             0b000111 => { if rs > 0             {let jtarg = (self.PC) as i32 + ((imm as i32) <<2); self.PC = jtarg as u32;}; },//bgtz
             0b000110 => { if rs <= self.reg[rt] {let jtarg = (self.PC) as i32 + ((imm as i32) <<2); self.PC = jtarg as u32;}; },//blez
-            0b100000 => {self.reg[rt] = Definitions::to_byte(self.mem.load(rs+imm, 1) );},//lb
-            0b100100 => {self.reg[rt] = Definitions::to_byte(self.mem.load(rs+imm, 1) );},//lbu
-            0b100001 => {self.reg[rt] = Definitions::to_half(self.mem.load(rs+imm, 2) );},//lh
-            0b100101 => {self.reg[rt] = Definitions::to_half(self.mem.load(rs+imm, 2) );},//lhu
-            0b100011 => {self.reg[rt] = Definitions::to_word(self.mem.load(rs+imm, 4) );}//lw
+            0b100000 => {self.reg[rt] = Definitions::from_byte(self.mem.load(rs+imm, 1) );},//lb
+            0b100100 => {self.reg[rt] = Definitions::from_byte(self.mem.load(rs+imm, 1) );},//lbu
+            0b100001 => {self.reg[rt] = Definitions::from_half(self.mem.load(rs+imm, 2) );},//lh
+            0b100101 => {self.reg[rt] = Definitions::from_half(self.mem.load(rs+imm, 2) );},//lhu
+            0b100011 => {self.reg[rt] = Definitions::from_word(self.mem.load(rs+imm, 4) );}//lw
             0b101000 => {
                 let b = self.reg[rt];
                 let v = vec![b as u8;1];

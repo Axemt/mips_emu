@@ -1,5 +1,10 @@
 
 #![allow(non_snake_case)]
+
+pub type Byte = u8;
+pub type Half = u16;
+pub type Word = u32;
+
 #[derive(Debug)]
 pub struct RelfHeader32 {
 
@@ -106,7 +111,7 @@ pub struct SectionHeader32 {
  * 
  *  the converted word in u32
  */
-pub fn to_word(contents: &[u8]) -> u32 {
+pub fn from_word(contents: &[u8]) -> u32 {
     let word: u32 = contents[3] as u32 | (contents[2] as u32) << 8 | (contents[1] as u32) << 16 | (contents[0]as u32) << 24;
     
     return word;
@@ -129,7 +134,7 @@ pub fn to_word(contents: &[u8]) -> u32 {
  * 
  *  the converted halfword in u32
  */
-pub fn to_half(contents: &[u8]) -> u32 {
+pub fn from_half(contents: &[u8]) -> u32 {
     let word: u32 = (contents[1] as u32)| (contents[0] as u32) << 8;
 
     return word
@@ -151,7 +156,7 @@ pub fn to_half(contents: &[u8]) -> u32 {
  * 
  *  the converted byte in u32
  */
-pub fn to_byte(contents: &[u8]) -> u32 {
+pub fn from_byte(contents: &[u8]) -> u32 {
     let word: u32 = contents[0] as u32;
     
     return word;
@@ -170,15 +175,15 @@ pub const FIN_FLAG: u32 = 4;
 
 #[test]
 fn conversions() {
-    let mut got = to_half(&[0,1]);
+    let mut got = from_half(&[0,1]);
     assert_eq!(0x00000001, got);
 
-    got = to_half(&[1,255]);
+    got = from_half(&[1,255]);
     assert_eq!(0x000001ff, got);
 
-    got = to_word(&[0,0,0,1]);
+    got = from_word(&[0,0,0,1]);
     assert_eq!(0x00000001,got);
 
-    got = to_word(&[255,0,255,0]);
+    got = from_word(&[255,0,255,0]);
     assert_eq!(0xff00ff00,got);
 }

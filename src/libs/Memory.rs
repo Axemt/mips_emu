@@ -1,4 +1,5 @@
 use super::Definitions::{RelfHeader32,SectionHeader32};
+use super::Definitions::{Byte, Half, Word};
 //use super::Definitions::{to_byte,to_half,to_word};
 use std::panic;
 use std::fs::File;
@@ -6,7 +7,7 @@ use std::io::Read;
 
 pub struct Memory {
 
-    mem_array: Vec<u8>,
+    mem_array: Vec<Byte>,
     mem_size: usize,
 
     verbose: bool
@@ -80,7 +81,7 @@ pub fn new( v: bool) -> Memory{
      * 
      *  pointer to slice
     */
-    pub fn load(&mut self,dir: u32 , size: usize) -> &[u8] {
+    pub fn load(&mut self,dir: u32 , size: usize) -> &[Byte] {
 
         let d = dir as usize;
 
@@ -90,7 +91,7 @@ pub fn new( v: bool) -> Memory{
         if d+size > self.mem_size { panic!("Tried to access memory address 0x{:08x} but current memory size is 0x{:08x}. Out of bounds",d+size,self.mem_size); }
         
         //get pointer to slice
-        let contents: &[u8] = &self.mem_array[d..d+size]; 
+        let contents: &[Byte] = &self.mem_array[d..d+size]; 
 
         if self.verbose { println!("\tloading: align={} dir={:08x?} contents={:x?}",size,dir,contents); }
 
@@ -109,7 +110,7 @@ pub fn new( v: bool) -> Memory{
      * 
      *  contents: bytes to store
     */
-    pub fn store(&mut self, dir: usize,size: usize, contents: &[u8]) {
+    pub fn store(&mut self, dir: usize,size: usize, contents: &[Byte]) {
 
         //extend dynamically
         if dir > self.mem_size { self.extend_mem(dir+size - self.mem_size);}
@@ -117,7 +118,7 @@ pub fn new( v: bool) -> Memory{
 
         if self.verbose { println!("\tstoring: align={} dir={:08x?} contents={:02x?}", size, dir, contents); }
         // copy into mem array, consume elements
-        let mut to_insert: u8;
+        let mut to_insert: Byte;
         let mut byte: usize = 0;
         for i in 0..size {
             
@@ -160,7 +161,7 @@ pub fn new( v: bool) -> Memory{
 
         //read file to descriptor, allocate buffer as Vec
         let mut f = File::open(RELF).unwrap();
-        let mut fBuffer: Vec<u8> = Vec::new();
+        let mut fBuffer: Vec<Byte> = Vec::new();
 
         
         //read contents of file into buffer
