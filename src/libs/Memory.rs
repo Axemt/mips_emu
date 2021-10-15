@@ -1,6 +1,6 @@
 use super::Definitions::{RelfHeader32,SectionHeader32};
 use super::Definitions::{Byte, Half, Word};
-//use super::Definitions::{to_byte,to_half,to_word};
+use super::Definitions;
 use std::panic;
 use std::fs::File;
 use std::io::Read;
@@ -9,7 +9,8 @@ pub struct Memory {
 
     mem_array: Vec<Byte>,
     mem_size: usize,
-
+    protected_higher: u32,
+    mode_privilege: bool,
     verbose: bool
 }
 
@@ -22,11 +23,27 @@ pub struct Memory {
      * **/
 pub fn new( v: bool) -> Memory{
 
-    return Memory {mem_array: vec![0;0], mem_size: 0, verbose: v};
+    return Memory {mem_array: vec![0;0], mem_size: 0, protected_higher: 0, mode_privilege: false, verbose: v};
 
 }
 
  impl Memory {
+
+    /**
+     *  Set the range of protected addresses from 0 to proct_high
+     * 
+     *  ARGS:
+     *  
+     *   proct_high: Highest address of the reserved space
+     * 
+     */
+    pub fn protect(&mut self, proct_high: u32) {
+        self.protected_higher = proct_high;
+    }
+
+    pub fn setPrivileged(&mut self,m: bool) {
+        self.mode_privilege = m;
+    }
     
 
     /**
@@ -83,6 +100,8 @@ pub fn new( v: bool) -> Memory{
     */
     pub fn load(&mut self,dir: u32 , size: usize) -> &[Byte] {
 
+        if dir < self.protected_higher && self.mode_privilege == false { panic!("Tried to access protected region range [0x00000000..0x{:08x}] at address 0x{:08x}",self.protected_higher,dir); }
+        
         let d = dir as usize;
 
         //fake having a 4GB memory by dynamically extending on "OOB" accesses
@@ -112,8 +131,10 @@ pub fn new( v: bool) -> Memory{
     */
     pub fn store(&mut self, dir: usize,size: usize, contents: &[Byte]) {
 
+        if dir <= self.protected_higher as usize && self.mode_privilege == false { panic!("Tried to access protected region range [0x00000000..0x{:08x}] at address 0x{:08x}",self.protected_higher,dir); }
+
         //extend dynamically
-        if dir > self.mem_size { self.extend_mem(dir+size - self.mem_size);}
+        if dir >= self.mem_size { self.extend_mem(dir+size - self.mem_size);}
 
 
         if self.verbose { println!("\tstoring: align={} dir={:08x?} contents={:02x?}", size, dir, contents); }
@@ -135,6 +156,11 @@ pub fn new( v: bool) -> Memory{
 
     }
 
+    /** 
+     * Loads a binary file byte by byte into memory starting from 0x00000000
+     * 
+     * Note that this overwrites memory and ignores reserved ranges for writing
+    */
     pub fn load_bin(&mut self, bin: &str) {
         let mut f = File::open(bin).unwrap();
         let mut fBuffer: Vec<u8> = Vec::new();
@@ -226,11 +252,12 @@ pub fn new( v: bool) -> Memory{
         let code_raw = &fBuffer[52+prog_header.p_offset as usize..(52+prog_header.p_offset+prog_header.p_memsz) as usize];
 
         //set up memory size
-        //get max of both and extend, then use extend_mem_FAST
+        //get max of both and extend, then use extend_mem
         let to_alloc = std::cmp::max(prog_header.p_paddr+prog_header.p_memsz as u32, data_header.p_paddr + data_raw.len() as u32);
 
 
-        self.extend_mem_FAST(to_alloc as usize);
+        //We CANNOT use extend_mem_FAST because it'll overwrite the default irqH. only allowed in load_bin because we don't care there
+        self.extend_mem(to_alloc as usize);
         //if the data segment exists, load it
 
         //copy to memory
@@ -309,4 +336,39 @@ fn extend_mem_all() {
     assert_eq!(m.mem_size,m.mem_array.len());
     assert_eq!(m.mem_array.len(),0x700080);
 
+}
+
+#[test]
+#[should_panic]
+fn unprivileged_protected_access() {
+
+    let mut m: Memory = new(true);
+
+    m.extend_mem_FAST(0x0000ff00);
+    m.protect(0x0000fC00);
+
+    //correct access
+    let got = m.load(0x0000fd00, 4);
+    //access to protected -> panic
+
+
+    let mut m2: Memory = new(true);
+    m2.extend_mem_FAST(0x0000ff00);
+    m2.protect(0x0000fC00);
+    m2.store(0x0000AA00, 4, got);
+}
+
+#[test]
+fn privileged_protected_access() {
+
+       let mut m: Memory = new(true);
+
+       m.extend_mem_FAST(0x0000ff00);
+       m.protect(0x0000fC00);
+       m.setPrivileged(true);
+       
+       //correct access   
+       m.store(0x0000AA00, 4, &[0x69, 0x69, 0x69, 0x66]);
+       let _ = m.load(0x0000AA00, 4); 
+    
 }

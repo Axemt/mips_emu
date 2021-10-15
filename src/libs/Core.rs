@@ -12,13 +12,25 @@ pub struct Core {
     mem: Memory::Memory,
     flags: u32,
     PC: u32,
+    IrqH_addr: u32,
+    EPC: u32,
     verbose: bool
 }
 
 
 pub fn new(v: bool) -> Core {
 
-    return Core {reg: vec![0;32],HI: 0, LO: 0, mem: Memory::new(v),flags: 0, PC: 0, verbose: v}
+    let mut c = Core {reg: vec![0;32],HI: 0, LO: 0, mem: Memory::new(v),flags: 0, PC: 0, IrqH_addr: 0, EPC: 0, verbose: v};
+
+    //init default irq_handler
+    c.mem.setPrivileged(true);
+    let DEFAULT_irq = Definitions::DEFAULT_IRQH;
+    c.set_IrqHPC(4);
+    c.mem.store(4, DEFAULT_irq.len(),&DEFAULT_irq);
+    c.mem.protect(DEFAULT_irq.len() as u32+ 4);
+    c.mem.setPrivileged(false);
+
+    return c;
 
 }
 
@@ -41,6 +53,9 @@ impl Core {
     /**
      * Loads a raw binary into memory and sets PC
      * 
+     * Note that this starts writing from address 0x00000000 
+     * and ignores reserved sections of memory
+     * 
      * ARGS:
      * 
      *  path: Path to binary file
@@ -52,6 +67,29 @@ impl Core {
         self.PC = entry;
         self.mem.load_bin(path);
 
+    }
+
+    /**
+     *  Set the range of protected addresses from 0 to proct_high
+     * 
+     *  ARGS:
+     *  
+     *   proct_high: Highest address of the reserved space
+     * 
+     */
+    pub fn protect_mem(&mut self, protect_high: u32) {
+        self.mem.protect(protect_high);
+    }
+
+    /**
+     * Sets the IrqH PC for exceptions
+     * 
+     * ARGS:
+     * 
+     * irqpc: The address to jump to on interrupt
+     */
+    pub fn set_IrqHPC(&mut self, irqpc: u32) {
+        self.IrqH_addr = irqpc
     }
 
     /**
@@ -91,6 +129,8 @@ impl Core {
 
         //avoid weird tuples in vec::align_to, we know it'll always be aligned
         let code = Definitions::from_word(self.mem.load(PC,4));
+
+        if PC == self.IrqH_addr +4 { panic!("past"); }
 
         if self.verbose {
             print!("Code: 0x{:01$x?} ",code,8);
@@ -171,6 +211,39 @@ impl Core {
 
     fn handoff_I(&mut self, code: u32) {
 
+        //special instruction: RFE
+        if code == 0x42000010 {
+
+            if self.verbose { println!("\tRFE:EPC={:08x}",self.EPC); }
+
+            //panic if we are not privileged
+            if  !(self.flags & (0x0000 | 1<< Definitions::MODE_FLAG) == 1) { panic!("Tried to use privileged instruction 0x{:08x} but the mode bitflag was not set to 1; Flags=0x{:08x}",code, self.flags); }
+            //restore PC
+            self.PC = self.EPC;
+            //disable privileged
+            self.flags &= !(1<<Definitions::MODE_FLAG);
+            self.mem.setPrivileged(false);
+
+            return;
+
+        }
+
+        //special instruction: hlt
+        if code == 0x42000001 {
+
+            let privileged = !(self.flags & (0x0000 | 1<< Definitions::MODE_FLAG) == 1);
+
+            if self.verbose { println!("\tHLT: privilege status: {};",privileged ); }
+
+            //panic if we are not privileged
+            if  !privileged { panic!("Tried to use privileged instruction 0x{:08x} but the mode bitflag was not set to 1; Flags=0x{:08x}",code, self.flags); }
+            self.flags |= 1<<Definitions::FIN_FLAG;
+
+            return;
+
+        }
+
+
         let func = (code & 0b11111100000000000000000000000000) >> 26; 
         let rs   = self.reg[((code & 0b00000011111000000000000000000000) >> 21) as usize];
         let rt   = ((code & 0b00000000000111110000000000000000) >> 16) as usize;
@@ -223,7 +296,6 @@ impl Core {
 
 
 
-
         }
 
     }
@@ -231,7 +303,18 @@ impl Core {
 
     fn handoff_J(&mut self,code: u32) {
 
-        if code == 0x68000000 {self.handoff_syscall(); return;}
+        //special instruction, syscall
+        if code == 0x68000000 {
+
+            if self.verbose { println!("\tSyscall; v0={}, v1={}", self.reg[2], self.reg[3]); }
+
+            //save current pc, jump to IrqH, set privileged flag
+            self.EPC = self.PC;
+            self.PC = self.IrqH_addr-4;
+            self.flags |= 1 << Definitions::MODE_FLAG;
+            self.mem.setPrivileged(true);
+            return;
+        }
 
         let func          = (code & 0xfc000000) >> 26;
         let jump_target   = (code & !0xfc000000) << 2 ;
@@ -248,26 +331,6 @@ impl Core {
 
     }
 
-
-    fn handoff_syscall(&mut self) {
-
-        let v0 = self.reg[2];
-        let v1 = self.reg[3];
-
-        if self.verbose { println!("\tSyscall: v0={} v1={}",v0, v1); }
-
-        match v0 {
-
-            3 => {return}
-            4 => {return}
-
-            10 => { self.flags |= 1 << Definitions::FIN_FLAG; }
-
-
-            _ => { panic!("Unrecognized Syscall code. v0={}",v0); }
-        }
-
-    }
 
 }
 
@@ -287,9 +350,10 @@ fn basic() {
     
 }
 
+
 #[test]
 #[should_panic]
-fn panic_on_OOB_access() {
+fn OOB_access() {
     let mut c: Core = new(true);
 
     let base = 0x04;
@@ -300,4 +364,14 @@ fn panic_on_OOB_access() {
     c.PC = base as u32;
 
     c.run();
+}
+
+#[test]
+#[should_panic]
+fn unprivileged_rfe() {
+    let mut c: Core = new(true);
+
+    let code = [0x42, 0x00, 0x00, 0x10]; //rfe
+    c.mem.store(4, 4, &code);
+    c.run_handoff(0x4);
 }

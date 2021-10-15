@@ -162,10 +162,26 @@ pub fn from_byte(contents: &[u8]) -> u32 {
     return word;
 }
 
+/**
+ *  FLAG FORMAT
+ *  0 1 2 3 4 ...
+ *  Z|S| |M|F|
+ */
 
-pub const Z_FLAG: u32 = 0;
-pub const S_FLAG: u32 = 1;
-pub const FIN_FLAG: u32 = 4;
+pub const Z_FLAG:    u32 = 0;
+pub const S_FLAG:    u32 = 1;
+pub const FIN_FLAG:  u32 = 4;
+pub const MODE_FLAG: u32 = 3;
+
+
+//DEFAULT_IRQH CODE:
+
+pub const DEFAULT_IRQH: [u8; 8] = [
+
+    0x42,0x00,0x00,0x01, /* HLT (placeholder)*/
+    0x42,0x00,0x00,0x10  /* RFE */
+
+];
 
 
 /**
