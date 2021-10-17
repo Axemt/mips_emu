@@ -2,4 +2,5 @@
 
 mod Memory;
 mod Definitions;
+mod Devices;
 pub mod Core;

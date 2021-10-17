@@ -1,6 +1,7 @@
 use super::Definitions::{RelfHeader32,SectionHeader32};
 use super::Definitions::{Byte, Half, Word};
 use super::Definitions;
+use super::Devices::MemoryMapped;
 use std::panic;
 use std::fs::File;
 use std::io::Read;
@@ -9,9 +10,11 @@ pub struct Memory {
 
     mem_array: Vec<Byte>,
     mem_size: usize,
-    protected_higher: u32,
     mode_privilege: bool,
-    verbose: bool
+    verbose: bool,
+    protected_ranges: Vec<(u32, u32)>,
+    devices: Vec<(u32, u32, Box<dyn MemoryMapped>)>,
+    
 }
 
 /**
@@ -23,28 +26,59 @@ pub struct Memory {
      * **/
 pub fn new( v: bool) -> Memory{
 
-    return Memory {mem_array: vec![0;0], mem_size: 0, protected_higher: 0, mode_privilege: false, verbose: v};
+
+    let mut devices: Vec<(u32, u32,  Box<dyn MemoryMapped>)> = Vec::new();
+
+    return Memory {
+         mem_array: vec![0;0],
+         mem_size: 0,
+         protected_ranges: Vec::<(u32, u32)>::new(),
+         mode_privilege: false,
+         verbose: v, 
+         devices: devices
+        };
 
 }
 
  impl Memory {
 
-    /**
-     *  Set the range of protected addresses from 0 to proct_high
+        /**
+     *  Adds the range proct_low .. proct_high to the set of protected address ranges
      * 
      *  ARGS:
-     *  
-     *   proct_high: Highest address of the reserved space
+     * 
+     *  proct_low: Lowest address of the reserved range
+     * 
+     *  proct_high: Highest address of the reserved range
      * 
      */
-    pub fn protect(&mut self, proct_high: u32) {
-        self.protected_higher = proct_high;
+    pub fn protect(&mut self, proct_low: u32, proct_high: u32) {
+
+        if self.verbose { println!("[MEM]: Protecting range [0x{:08x}..0x{:08x}]", proct_low, proct_high); }
+
+        self.protected_ranges.push( (proct_low, proct_high) );
     }
 
+    /**
+     * Changes the level of privilege access of the memory
+     * 
+     * ARGS:
+     * 
+     *  m: The new level of permission
+     */
     pub fn setPrivileged(&mut self,m: bool) {
+        if self.verbose { println!("[MEM]:Changed privilege mode to {}", m); }
         self.mode_privilege = m;
     }
     
+
+    pub fn mapDevice(&mut self, range_lower: u32, range_upper: u32, device: Box<dyn MemoryMapped>) {
+
+        if self.verbose { println!("[MEM]: Mapping device to range 0x{:08x}..0x{:08x}]", range_lower, range_upper); }
+
+        self.devices.push( (range_lower, range_upper, device) );
+
+    }
 
     /**
      * Extends memory allocation by alloc bytes
@@ -64,7 +98,7 @@ pub fn new( v: bool) -> Memory{
         self.mem_array.extend(&vec![0;alloc]);
 
         self.mem_size += alloc;
-        if self.verbose { println!("extend_mem adding {} bytes. New size is: {}. Highest address is: 0x{:x}",alloc,self.mem_size,self.mem_size) }
+        if self.verbose { println!("[MEM]: extend_mem adding {} bytes. New size is: {}. Highest address is: 0x{:x}",alloc,self.mem_size,self.mem_size) }
 
     }
 
@@ -82,7 +116,7 @@ pub fn new( v: bool) -> Memory{
         self.mem_array = vec![0; alloc];
         self.mem_size = alloc;
 
-        if self.verbose { println!("extend_mem_FAST adding {} bytes. New size is: {}. Highest address is: 0x{:x}",alloc,self.mem_size,self.mem_size) }
+        if self.verbose { println!("[MEM]: extend_mem_FAST adding {} bytes. New size is: {}. Highest address is: 0x{:x}",alloc,self.mem_size,self.mem_size) }
     }
 
     /**
@@ -100,19 +134,43 @@ pub fn new( v: bool) -> Memory{
     */
     pub fn load(&mut self,dir: u32 , size: usize) -> &[Byte] {
 
-        if dir < self.protected_higher && self.mode_privilege == false { panic!("Tried to access protected region range [0x00000000..0x{:08x}] at address 0x{:08x}",self.protected_higher,dir); }
-        
+        let contents: &[u8];
+
+        for elem in & mut self.protected_ranges {
+
+            let prot_lo = elem.0;
+            let prot_high = elem.1;
+
+            if dir < prot_high && dir >= prot_lo && self.mode_privilege == false { panic!("Tried to access protected region range [0x{:08x}..0x{:08x}] at address 0x{:08x}",prot_lo, prot_high,dir); }
+
+        }   
+
         let d = dir as usize;
 
         //fake having a 4GB memory by dynamically extending on "OOB" accesses
         if d+size > self.mem_size { self.extend_mem(d+size-self.mem_size); }
+        
 
-        if d+size > self.mem_size { panic!("Tried to access memory address 0x{:08x} but current memory size is 0x{:08x}. Out of bounds",d+size,self.mem_size); }
+        for elem in & mut self.devices {
+            
+            let dev_lower = elem.0;
+            let dev_upper = elem.1;
+
+            //check if in range of a device
+            if dir >= dev_lower && dir <= dev_upper { 
+
+                if self.verbose { println!("[MEM]: Read access to Memory Mapped Device at address {:08x}; Handing off...", dir); }
+
+                contents =  elem.2.read(dir, size) ;
+                return contents;
+            }
+
+        }
         
         //get pointer to slice
-        let contents: &[Byte] = &self.mem_array[d..d+size]; 
+        contents = &self.mem_array[d..d+size]; 
 
-        if self.verbose { println!("\tloading: align={} dir={:08x?} contents={:x?}",size,dir,contents); }
+        if self.verbose { println!("[MEM]: loading: align={} dir={:08x?} contents={:x?}",size,dir,contents); }
 
         return contents;
 
@@ -129,15 +187,42 @@ pub fn new( v: bool) -> Memory{
      * 
      *  contents: bytes to store
     */
-    pub fn store(&mut self, dir: usize,size: usize, contents: &[Byte]) {
+    pub fn store(&mut self, dir: usize ,size: usize, contents: &[Byte]) {
 
-        if dir <= self.protected_higher as usize && self.mode_privilege == false { panic!("Tried to access protected region range [0x00000000..0x{:08x}] at address 0x{:08x}",self.protected_higher,dir); }
+        let d = dir as u32;
 
+        //check protection
+        for elem in & mut self.protected_ranges {
+
+            let prot_lo = elem.0;
+            let prot_high = elem.1;
+
+            if d < prot_high && d >= prot_lo && self.mode_privilege == false { panic!("Tried to access protected region range [0x{:08x}..0x{:08x}] at address 0x{:08x}",prot_lo, prot_high,dir); }
+
+        }
         //extend dynamically
-        if dir >= self.mem_size { self.extend_mem(dir+size - self.mem_size);}
+        if dir+size >= self.mem_size { self.extend_mem(dir+size - self.mem_size);}
+
+        for elem in & mut self.devices {
+            
+            let dev_lower = elem.0;
+            let dev_upper = elem.1;
+
+            //check if in range of a device
+            if d >= dev_lower && d <= dev_upper { 
+
+                if self.verbose { println!("[MEM]: Write access to Memory Mapped Device at address {:08x} with contents {:?}; Handing off...", dir,contents); }
+
+                elem.2.write(dir, size, contents);
+
+                return;
+            }
 
 
-        if self.verbose { println!("\tstoring: align={} dir={:08x?} contents={:02x?}", size, dir, contents); }
+        }
+
+
+        if self.verbose { println!("[MEM]: storing: align={} dir={:08x?} contents={:02x?}", size, dir, contents); }
         // copy into mem array, consume elements
         let mut to_insert: Byte;
         let mut byte: usize = 0;
@@ -345,16 +430,16 @@ fn unprivileged_protected_access() {
     let mut m: Memory = new(true);
 
     m.extend_mem_FAST(0x0000ff00);
-    m.protect(0x0000fC00);
+    m.protect(0,0x0000fC00);
 
     //correct access
     let got = m.load(0x0000fd00, 4);
+
+
     //access to protected -> panic
-
-
     let mut m2: Memory = new(true);
     m2.extend_mem_FAST(0x0000ff00);
-    m2.protect(0x0000fC00);
+    m2.protect(0,0x0000fC00);
     m2.store(0x0000AA00, 4, got);
 }
 
@@ -364,11 +449,24 @@ fn privileged_protected_access() {
        let mut m: Memory = new(true);
 
        m.extend_mem_FAST(0x0000ff00);
-       m.protect(0x0000fC00);
+       m.protect(0,0x0000fC00);
        m.setPrivileged(true);
        
        //correct access   
        m.store(0x0000AA00, 4, &[0x69, 0x69, 0x69, 0x66]);
        let _ = m.load(0x0000AA00, 4); 
     
+}
+
+#[test]
+fn device_access() {
+    
+    let mut m: Memory = new(true);
+
+    //write to Console
+    m.store(0x80000000, 4, b"abcd");
+
+    //read (mode) from Keyboard
+    m.load(0x80000008, 1);
+
 }

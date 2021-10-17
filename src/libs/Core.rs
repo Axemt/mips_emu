@@ -3,14 +3,16 @@ use super::Definitions;
 use super::Definitions::{Byte, Half, Word};
 use std::panic;
 use std::time::Instant;
+use super::Devices;
+use super::Devices::{Console,Keyboard};
 
 pub struct Core {
 
-    reg: Vec<u32>,
-    HI: u32,
-    LO: u32,
+    reg: Vec<Word>,
+    HI: Word,
+    LO: Word,
     mem: Memory::Memory,
-    flags: u32,
+    flags: Word,
     PC: u32,
     IrqH_addr: u32,
     EPC: u32,
@@ -22,13 +24,23 @@ pub fn new(v: bool) -> Core {
 
     let mut c = Core {reg: vec![0;32],HI: 0, LO: 0, mem: Memory::new(v),flags: 0, PC: 0, IrqH_addr: 0, EPC: 0, verbose: v};
 
+    let mut mem = Memory::new(v);
     //init default irq_handler
-    c.mem.setPrivileged(true);
+    mem.setPrivileged(true);
     let DEFAULT_irq = Definitions::DEFAULT_IRQH;
-    c.set_IrqHPC(4);
-    c.mem.store(4, DEFAULT_irq.len(),&DEFAULT_irq);
-    c.mem.protect(DEFAULT_irq.len() as u32+ 4);
-    c.mem.setPrivileged(false);
+    if v { println!("Setting up default IRQH with address 0x00000004") }
+    mem.store(4, DEFAULT_irq.len(),&DEFAULT_irq);
+    mem.protect(0,DEFAULT_irq.len() as u32+ 4);
+    mem.setPrivileged(false);
+
+    //add mapped devices
+    let console  = Box::new(Console::new() );
+    let keyboard = Box::new(Keyboard::new() );
+    mem.mapDevice( console.range_lower,console.range_upper, console  );
+    mem.mapDevice( keyboard.range_lower, keyboard.range_upper, keyboard);
+
+    let c = Core {reg: vec![0;32],HI: 0, LO: 0, mem: mem,flags: 0, PC: 0, IrqH_addr: 4, EPC: 0, verbose: v};
+
 
     return c;
 
@@ -70,15 +82,17 @@ impl Core {
     }
 
     /**
-     *  Set the range of protected addresses from 0 to proct_high
+     *  Adds the range proct_low .. proct_high to the set of protected address ranges
      * 
      *  ARGS:
-     *  
-     *   proct_high: Highest address of the reserved space
+     * 
+     *  proct_low: Lowest address of the reserved range
+     * 
+     *  proct_high: Highest address of the reserved range
      * 
      */
-    pub fn protect_mem(&mut self, protect_high: u32) {
-        self.mem.protect(protect_high);
+    pub fn protect_mem(&mut self, proct_low: u32, proct_high: u32) {
+        self.mem.protect(proct_low,proct_high);
     }
 
     /**
@@ -112,14 +126,14 @@ impl Core {
 
             //check if FIN_FLAG is set
             if self.flags & 1<< Definitions::FIN_FLAG != 0 {
-                if self.verbose { println!("FIN_FLAG set; Flags={:08x}",self.flags) }
+                if self.verbose { println!("------------------\n[CORE]: FIN_FLAG set; Flags={:08x}",self.flags) }
                 break;
             }
 
         }
 
         if self.verbose {
-            println!("Finished execution in T={} s",st.elapsed().as_secs_f64())
+            println!("[CORE]: Finished execution in T={} s",st.elapsed().as_secs_f64())
         }
 
     }
@@ -128,13 +142,11 @@ impl Core {
     fn run_handoff(&mut self, PC: u32) {
 
         //avoid weird tuples in vec::align_to, we know it'll always be aligned
-        let code = Definitions::from_word(self.mem.load(PC,4));
+        let code: Word = Definitions::from_word(self.mem.load(PC,4));
 
-        if PC == self.IrqH_addr +4 { panic!("past"); }
 
         if self.verbose {
-            print!("Code: 0x{:01$x?} ",code,8);
-            println!("at PC=0x{:01$x?}",PC,8);
+            println!("[CORE]: Code: 0x{:08x?} at PC=0x{:08x}",code,PC);
         }
 
         let maskOP = (code & 0xfc000000) >> 26;
@@ -152,7 +164,7 @@ impl Core {
     }
 
 
-    fn handoff_R(&mut self,code: u32,) {
+    fn handoff_R(&mut self,code: Word) {
 
         if code == 0x00000000 {
             if self.verbose { println!("\tR-type: NOP"); }
@@ -209,7 +221,7 @@ impl Core {
     }
 
 
-    fn handoff_I(&mut self, code: u32) {
+    fn handoff_I(&mut self, code: Word) {
 
         //special instruction: RFE
         if code == 0x42000010 {
@@ -222,6 +234,9 @@ impl Core {
             self.PC = self.EPC;
             //disable privileged
             self.flags &= !(1<<Definitions::MODE_FLAG);
+
+            if self.verbose { println!("[CORE]: Changed privilege mode to false") }
+
             self.mem.setPrivileged(false);
 
             return;
@@ -259,8 +274,8 @@ impl Core {
             0b001100 => {self.reg[rt] = rs & imm;},//andi
             0b001101 => {self.reg[rt] = rs | imm;},//ori
             0b001110 => {self.reg[rt] = rs ^ imm;},//xori
-            0b001010 => {println!("slti");}, //slti
-            0b001001 => {println!("sltiu");},//sltiu
+            0b001010 => {if (rs as i32) < (imm as i32) { self.reg[rt] = 1;} else { self.reg[rt] = 0;} }, //slti
+            0b001011 => {if rs < imm { self.reg[rt] = 1;} else { self.reg[rt] = 0;} },//sltiu
             0b011001 => {println!("lhi");},//lhi
             0b011000 => {println!("llo");},//llo
             0b000100 => { if rs == self.reg[rt] {let jtarg = (self.PC) as i32 + ((imm as i32) <<2); self.PC = jtarg as u32;}; },//beq
@@ -276,19 +291,19 @@ impl Core {
                 let b = self.reg[rt];
                 let v = vec![b as u8;1];
 
-                self.mem.store((rs+imm) as usize, 1, &v);
+                self.mem.store( (rs+imm) as usize , 1, &v);
             },//sb
             0b101001 => {
                 let b = self.reg[rt];
                 let v = vec![(b >> 8) as u8, (b & 0x00ff) as u8];
 
-                self.mem.store((rs+imm) as usize, 2, &v);
+                self.mem.store( (rs+imm) as usize, 2, &v);
             },//sh
             0b101011 => {
                 let b = self.reg[rt];
                 let v = vec![(b & 0xff000000 >> 24) as u8, (b & 0x00ff0000 >> 16) as u8,(b & 0x0000ff00 >> 8) as u8, (b & 0x000000ff) as u8];
 
-                self.mem.store((rs+imm) as usize, 4, &v);
+                self.mem.store( (rs +imm) as usize, 4, &v);
             },//sw
 
 
@@ -301,12 +316,12 @@ impl Core {
     }
 
 
-    fn handoff_J(&mut self,code: u32) {
+    fn handoff_J(&mut self,code: Word) {
 
         //special instruction, syscall
         if code == 0x68000000 {
 
-            if self.verbose { println!("\tSyscall; v0={}, v1={}", self.reg[2], self.reg[3]); }
+            if self.verbose { println!("\tSyscall; v0={}, v1={}\n[CORE]: Changed privilege mode to true", self.reg[2], self.reg[3]); }
 
             //save current pc, jump to IrqH, set privileged flag
             self.EPC = self.PC;
@@ -353,25 +368,22 @@ fn basic() {
 
 #[test]
 #[should_panic]
-fn OOB_access() {
-    let mut c: Core = new(true);
-
-    let base = 0x04;
-    c.mem.store(base, 4, &[0x24,0x08,0x01,0]); //addiu $at, $0, 256 
-    c.mem.store(base+4, 4, &[0x81,0x01,0,0]);  //lb $at, 0($at)
-    //mem_size < 0($at), crash
-
-    c.PC = base as u32;
-
-    c.run();
-}
-
-#[test]
-#[should_panic]
 fn unprivileged_rfe() {
     let mut c: Core = new(true);
 
     let code = [0x42, 0x00, 0x00, 0x10]; //rfe
-    c.mem.store(4, 4, &code);
-    c.run_handoff(0x4);
+    c.mem.store(0x00ff, 4, &code);
+    c.PC = 0x00ff;
+    c.run();
+}
+
+#[test]
+fn default_irqH() {
+    let mut c: Core = new(true);
+
+    c.mem.store(0x00f8, 4, &[0x20, 0x02, 0x00, 0x0A]); //li $v0, 10
+    c.mem.store(0x00fc, 4, &[0x68,0x00,0x00,0x00]); //syscall
+    c.PC = 0x00f8;
+
+    c.run();
 }
