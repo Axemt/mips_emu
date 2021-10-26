@@ -1,6 +1,7 @@
 use super::MemoryMapped;
 use std::io;
 use std::io::Read;
+use super::super::Definitions::from_sizeN;
 
 pub struct Keyboard {
     pub range_lower: u32,
@@ -16,13 +17,15 @@ impl MemoryMapped for Keyboard {
         self.buffer.clear();
 
 
-        if dir >= self.range_lower+4 {
+        if dir < self.range_lower+3 {
 
             io::stdin().read(&mut self.buffer).unwrap();
+            //remove intro character
+            self.buffer.pop();
 
         } else {
 
-            panic!("Tried to read from non-readable address {:08x} in device 'Keyboard'", dir);
+            panic!("Tried to read from non-readable address 0x{:08x} in device 'Keyboard'", dir);
 
         }
 
@@ -32,11 +35,11 @@ impl MemoryMapped for Keyboard {
 
     }
 
-    fn write(&mut self, dir: usize, _size: usize, contents: &[u8]) -> () {
+    fn write(&mut self, dir: usize, size: usize, contents: &[u8]) -> () {
         
-        if dir as u32 == self.range_lower { self.mode = contents[0]; return }
+        if (dir as u32 == self.range_lower+4) && (dir as u32 + size as u32) < self.range_upper { self.mode = contents[0]; return }
         
-        panic!("Tried to write to non-writeable address {:08x} in device 'Keyboard'",dir); 
+        panic!("Tried to write to non-writeable address 0x{:08x} in device 'Keyboard'",dir); 
     }
     
 }
@@ -65,27 +68,15 @@ fn integrity() {
 }
 
 #[test]
-fn read_setup_K() {
-    
+fn write_mode_K() {
     let mut k: Keyboard = new();
 
-    //set mode to 0
-    k.write(0x80000008, 4, &[0]);
-
-    //cannot test actual reading atm since we get from std::io::stdin() directly
+    k.write( (k.range_lower+4) as usize, 1, &[0;4]);
 }
 
 #[test]
 #[should_panic]
-fn write_K() {
-    let mut k: Keyboard = new();
-
-    k.write( (k.range_lower+4) as usize, 4, &[0;4]);
-}
-
-#[test]
-#[should_panic]
-fn read_mode_range_K() {
+fn read_mode_K() {
     let mut k: Keyboard = new();
 
     k.write(0x80000008, 4, &[0]);

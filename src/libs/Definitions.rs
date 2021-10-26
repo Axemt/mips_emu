@@ -1,6 +1,8 @@
 
 #![allow(non_snake_case)]
 
+use std::convert::TryInto;
+
 pub type Byte = u8;
 pub type Half = u16;
 pub type Word = u32;
@@ -96,6 +98,37 @@ pub struct SectionHeader32 {
     }
 
 /**
+ *  Converts a slice of N u8/bytes into an array [u8; N]
+ * 
+ *      let arr = &[1,2,3];
+ *      assert_eq!([1, 2, 3, 0], from_sizeN::<4>(arr));
+ * 
+ *  unused positions are filled with 0
+ *  if N < contents.len(), the array is truncated
+ * 
+ *  GENERICS:
+ *  
+ *  const N: the size of the output array
+ * 
+ *  ARGS:
+ * 
+ *  contents: the array to convert
+ * 
+ *  RETURNS:
+ * 
+ *  the output array [u8; N]
+ */
+pub fn from_sizeN<const N: usize>(contents: &[u8]) -> [u8; N] {
+
+    let mut tmpVec = contents.to_vec();
+    tmpVec.resize(N,0);
+    let res = tmpVec.try_into().unwrap();
+
+    return res;
+
+}
+
+/**
  *  Converts a sequence of four u8/bytes into a u32/word as follows
  * 
  *      got = Definitions::to_word(&[1,255,1,255]);
@@ -111,9 +144,9 @@ pub struct SectionHeader32 {
  * 
  *  the converted word in u32
  */
+#[inline(always)]
 pub fn from_word(contents: &[u8]) -> u32 {
     let word: u32 = contents[3] as u32 | (contents[2] as u32) << 8 | (contents[1] as u32) << 16 | (contents[0]as u32) << 24;
-    
     return word;
 }
 
@@ -134,9 +167,9 @@ pub fn from_word(contents: &[u8]) -> u32 {
  * 
  *  the converted halfword in u32
  */
+#[inline(always)]
 pub fn from_half(contents: &[u8]) -> u32 {
     let word: u32 = (contents[1] as u32)| (contents[0] as u32) << 8;
-
     return word
 }
 
@@ -156,6 +189,7 @@ pub fn from_half(contents: &[u8]) -> u32 {
  * 
  *  the converted byte in u32
  */
+#[inline(always)]
 pub fn from_byte(contents: &[u8]) -> u32 {
     let word: u32 = contents[0] as u32;
     
@@ -235,4 +269,16 @@ fn conversions() {
 
     got = from_word(&[255,0,255,0]);
     assert_eq!(0xff00ff00,got);
+}
+
+#[test]
+fn from_size() {
+
+    //extends with empty
+    let mut arr: &[u8] = &[1,2,3];
+    assert_eq!([1, 2, 3, 0], from_sizeN::<4>(arr));
+
+    //truncates
+    arr = &[23, 4, 5, 6, 9]; //len 5
+    assert_eq!([23, 4, 5, 6], from_sizeN::<4>(arr));
 }

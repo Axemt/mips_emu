@@ -22,8 +22,6 @@ pub struct Core {
 
 pub fn new(v: bool) -> Core {
 
-    let mut c = Core {reg: vec![0;32],HI: 0, LO: 0, mem: Memory::new(v),flags: 0, PC: 0, IrqH_addr: 0, EPC: 0, verbose: v};
-
     let mut mem = Memory::new(v);
     //init default irq_handler
     mem.setPrivileged(true);
@@ -33,7 +31,7 @@ pub fn new(v: bool) -> Core {
     mem.protect(0,DEFAULT_irq.len() as u32+ 4);
     mem.setPrivileged(false);
 
-    //add mapped devices
+    //add basic mapped devices
     let console  = Box::new(Console::new() );
     let keyboard = Box::new(Keyboard::new() );
     mem.mapDevice( console.range_lower,console.range_upper, console  );
@@ -79,6 +77,16 @@ impl Core {
         self.PC = entry;
         self.mem.load_bin(path);
 
+    }
+
+    /**
+     * Interrupts current execution and jumps to irqH
+     * 
+     */
+
+    pub fn interrupt(&mut self) {
+        self.EPC = self.PC;
+        self.PC = self.IrqH_addr;
     }
 
     /**
@@ -138,7 +146,7 @@ impl Core {
 
     }
 
-
+    #[inline(always)]
     fn run_handoff(&mut self, PC: u32) {
 
         //avoid weird tuples in vec::align_to, we know it'll always be aligned

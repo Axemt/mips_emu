@@ -1,4 +1,5 @@
 use super::MemoryMapped;
+use super::super::Definitions::{from_sizeN};
 
 #[derive(Copy, Clone)]
 
@@ -20,11 +21,12 @@ impl MemoryMapped for Console {
 
         //if writing to lower address, print
         if dir+size-1 <= self.range_lower as usize + 3 {
+
             match self.mode {
-                0 => { for i in contents { print!("{}",*i as u32);  } println!() } //print int
-                1 => { for i in contents { print!("{}",*i as f32);  } println!() } //print float
-                2 => { for i in contents { print!("{}",*i as u64);  } println!() } //print double
-                3 => { for i in contents { print!("{}",*i as char); } println!()} //print string
+                0 => { println!("{}", u32::from_be_bytes(from_sizeN::<4>(contents) ) ) } //print int
+                1 => { println!("{}", f32::from_be_bytes(from_sizeN::<4>(contents) ) ) } //print float
+                2 => { println!("{}", f64::from_be_bytes(from_sizeN::<8>(contents) ) ) } //print double
+                3 => { for i in contents { print!("{}",*i as char); } println!() } //print string
                 _ => { panic!("Console: Unknown print mode {}", self.mode); }
             }
         }
@@ -59,13 +61,23 @@ fn integrity() {
 }
 
 #[test]
-fn write_C() {
+fn write_modes_C() {
     
     let mut c: Console = new();
 
     //set mode to 3, string
     c.write(0x80000004, 1, &[3]);
-    c.write(0x80000000,4,b"abcd");
+    c.write(0x80000000, 4, b"abcd");
+
+    //set mode to 1, float
+    c.write(0x80000004, 1, &[1]);
+    let x: f32 = 12.34;
+    c.write(0x80000000, 4, &x.to_be_bytes());
+
+    //set mode to double
+    c.write(0x80000004, 1, &[2]);
+    let y: f64 = 3.1415926535;
+    c.write(0x80000000, 4, &y.to_be_bytes());
 }
 
 #[test]

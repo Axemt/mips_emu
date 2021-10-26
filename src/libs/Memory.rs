@@ -26,16 +26,13 @@ pub struct Memory {
      * **/
 pub fn new( v: bool) -> Memory{
 
-
-    let mut devices: Vec<(u32, u32,  Box<dyn MemoryMapped>)> = Vec::new();
-
     return Memory {
          mem_array: vec![0;0],
          mem_size: 0,
          protected_ranges: Vec::<(u32, u32)>::new(),
          mode_privilege: false,
          verbose: v, 
-         devices: devices
+         devices: Vec::<(u32, u32, Box<dyn MemoryMapped>)>::new()
         };
 
 }
@@ -74,7 +71,7 @@ pub fn new( v: bool) -> Memory{
 
     pub fn mapDevice(&mut self, range_lower: u32, range_upper: u32, device: Box<dyn MemoryMapped>) {
 
-        if self.verbose { println!("[MEM]: Mapping device to range 0x{:08x}..0x{:08x}]", range_lower, range_upper); }
+        if self.verbose { println!("[MEM]: Mapping device to range [0x{:08x}..0x{:08x}]", range_lower, range_upper); }
 
         self.devices.push( (range_lower, range_upper, device) );
 
@@ -290,10 +287,10 @@ pub fn new( v: bool) -> Memory{
         }
 
         //sanity checks
-        assert_eq!(relf_header.e_ident_MAG,0x7f454c46); //has magic number
-        assert_eq!(relf_header.e_ident_CLASS,0x01); // is 32b
-        assert_eq!(relf_header.e_type,0x02); // is executable
-        assert_eq!(relf_header.e_machine,0x08); // is mips architecture
+        assert_eq!(relf_header.e_ident_MAG,0x7f454c46,"ELF Magic Number not found"); //has magic number
+        assert_eq!(relf_header.e_ident_CLASS,0x01,"The file is not a 32b architecture"); // is 32b
+        assert_eq!(relf_header.e_type,0x02,"The file is not an executable"); // is executable
+        assert_eq!(relf_header.e_machine,0x08,"This executable's architecture is not MIPS"); // is mips architecture
 
 
         //unpack
@@ -306,8 +303,8 @@ pub fn new( v: bool) -> Memory{
             println!("found PROGRAM SectionHeader32!:\n\t{:x?}",prog_header);
         }
 
-        assert_eq!(prog_header.p_flags,0x05000000); // Readable, Executable
-        assert_eq!(prog_header.p_type,0x1); //is loadable segment
+        assert_eq!(prog_header.p_flags,0x05000000,"This text segment is not Readable and Executable"); // Readable, Executable
+        assert_eq!(prog_header.p_type,0x1,"This text segment is not Loadable"); //is loadable segment
 
 
         //unpack
@@ -320,8 +317,8 @@ pub fn new( v: bool) -> Memory{
         }
 
         //sanity checks
-        assert_eq!(data_header.p_flags,0x06000000); // Readable, Writeable
-        assert_eq!(data_header.p_type,0x1); //is loadable segment
+        assert_eq!(data_header.p_flags,0x06000000,"This data segment is not Readable and Writeable"); // Readable, Writeable
+        assert_eq!(data_header.p_type,0x1,"This data segment is not Loadable"); //is loadable segment
 
 
         //extract code and data raws
@@ -416,10 +413,12 @@ fn extend_mem_all() {
     assert_eq!(m.mem_size, m.mem_array.len());
     assert_eq!(m.mem_array.len(), 0x700000);
 
+    m = new(true);
+
     m.extend_mem(0x80);
 
     assert_eq!(m.mem_size,m.mem_array.len());
-    assert_eq!(m.mem_array.len(),0x700080);
+    assert_eq!(m.mem_array.len(),0x80);
 
 }
 
@@ -460,13 +459,19 @@ fn privileged_protected_access() {
 
 #[test]
 fn device_access() {
-    
+    use super::Devices;
+
     let mut m: Memory = new(true);
+    let c = Box::new(Devices::Console::new() );
+    let k = Box::new(Devices::Keyboard::new() );
+
+    m.mapDevice(c.range_lower, c.range_upper, c);
+    m.mapDevice(k.range_lower, k.range_upper, k);
 
     //write to Console
     m.store(0x80000000, 4, b"abcd");
 
-    //read (mode) from Keyboard
-    m.load(0x80000008, 1);
+    //store (mode) from Keyboard
+    m.store(0x8000000c, 1, &[1]);
 
 }

@@ -44,7 +44,7 @@ fn main() {
     let filepath = matches.value_of("File").unwrap();
 
 
-    let mut cpu = Core::new(v);
+    let mut cpu = Box::<Core::Core>::new(Core::new(v) );
 
     if filepath.ends_with(".relf") {
 
@@ -72,7 +72,6 @@ fn main() {
         }
 
     }
-
 
     cpu.run();
 
