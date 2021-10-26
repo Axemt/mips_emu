@@ -1,5 +1,6 @@
 pub mod Console;
 pub mod Keyboard;
+pub mod Interruptor;
 
 pub trait MemoryMapped {
 

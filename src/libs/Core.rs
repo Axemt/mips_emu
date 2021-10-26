@@ -4,7 +4,10 @@ use super::Definitions::{Byte, Half, Word};
 use std::panic;
 use std::time::Instant;
 use super::Devices;
-use super::Devices::{Console,Keyboard};
+use super::Devices::{Console,Keyboard,Interruptor};
+use std::sync::{Mutex, Arc};
+use std::sync::mpsc;
+use std::time::Duration;
 
 pub struct Core {
 
@@ -16,7 +19,8 @@ pub struct Core {
     PC: u32,
     IrqH_addr: u32,
     EPC: u32,
-    verbose: bool
+    verbose: bool,
+    timer_ch: mpsc::Receiver<u32>
 }
 
 
@@ -37,7 +41,10 @@ pub fn new(v: bool) -> Core {
     mem.mapDevice( console.range_lower,console.range_upper, console  );
     mem.mapDevice( keyboard.range_lower, keyboard.range_upper, keyboard);
 
-    let c = Core {reg: vec![0;32],HI: 0, LO: 0, mem: mem,flags: 0, PC: 0, IrqH_addr: 4, EPC: 0, verbose: v};
+    let (send, recv) = mpsc::channel();
+    Interruptor::new(1000, send);
+
+    let c = Core {reg: vec![0;32],HI: 0, LO: 0, mem: mem, flags: 0 ,PC: 0, IrqH_addr: 4, EPC: 0, verbose: v, timer_ch: recv};
 
 
     return c;
@@ -85,8 +92,10 @@ impl Core {
      */
 
     pub fn interrupt(&mut self) {
+        self.flags |= 1 << Definitions::MODE_FLAG;
+        self.mem.setPrivileged(true);
         self.EPC = self.PC;
-        self.PC = self.IrqH_addr;
+        self.PC = self.IrqH_addr-4;
     }
 
     /**
@@ -131,6 +140,18 @@ impl Core {
             //increment pc, set reg[0] to constant
             self.PC += 4;
             self.reg[0] = 0;
+
+            //check if INTERR_FLAG is set in channel only if not privileged
+            if self.flags & (0x0000 | 1<< Definitions::MODE_FLAG) == 1 {
+                let received = self.timer_ch.try_recv().unwrap();
+
+                //interrupt flag set in channel
+                if received == 1 {
+                    if self.verbose { println!("[CORE]: INTERR_FLAG set; Flags={:08x}",self.flags) }
+                    self.flags |= 1<<Definitions::INTERR_FLAG;
+                    self.interrupt();
+                }
+            }
 
             //check if FIN_FLAG is set
             if self.flags & 1<< Definitions::FIN_FLAG != 0 {
@@ -332,10 +353,7 @@ impl Core {
             if self.verbose { println!("\tSyscall; v0={}, v1={}\n[CORE]: Changed privilege mode to true", self.reg[2], self.reg[3]); }
 
             //save current pc, jump to IrqH, set privileged flag
-            self.EPC = self.PC;
-            self.PC = self.IrqH_addr-4;
-            self.flags |= 1 << Definitions::MODE_FLAG;
-            self.mem.setPrivileged(true);
+            self.interrupt();
             return;
         }
 
