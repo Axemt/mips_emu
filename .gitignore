@@ -7,3 +7,6 @@
 # files used for tests
 /testbins
 Tests.rs
+*.svg
+perf.data
+perf.data.old

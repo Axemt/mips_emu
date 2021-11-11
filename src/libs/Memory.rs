@@ -86,17 +86,15 @@ pub fn new( v: bool) -> Memory{
     */
     fn extend_mem(&mut self, mut alloc: usize) {
 
-
         //reduce useless extensions, extend by word mimimum
         if alloc < 4 { alloc = 4; }
         
 
-        // extend by appending with empty vec of alloc length        
+        // extend by appending with empty vec of alloc length, avoid using resize     
         self.mem_array.extend(&vec![0;alloc]);
 
         self.mem_size += alloc;
         if self.verbose { println!("[MEM]: extend_mem adding {} bytes. New size is: {}. Highest address is: 0x{:x}",alloc,self.mem_size,self.mem_size) }
-
     }
 
 
@@ -335,11 +333,11 @@ pub fn new( v: bool) -> Memory{
 
         //set up memory size
         //get max of both and extend, then use extend_mem
-        let to_alloc = std::cmp::max(prog_header.p_paddr+prog_header.p_memsz as u32, data_header.p_paddr + data_raw.len() as u32);
+        let to_alloc = std::cmp::max(prog_header.p_paddr+prog_header.p_memsz, data_header.p_paddr + data_raw.len() as u32) as usize;
 
 
         //We CANNOT use extend_mem_FAST because it'll overwrite the default irqH. only allowed in load_bin because we don't care there
-        self.extend_mem(to_alloc as usize);
+        self.extend_mem(to_alloc);
         //if the data segment exists, load it
 
         //copy to memory

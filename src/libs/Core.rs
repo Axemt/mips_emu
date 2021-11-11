@@ -3,11 +3,11 @@ use super::Definitions;
 use super::Definitions::{Byte, Half, Word};
 use std::panic;
 use std::time::Instant;
-use super::Devices;
-use super::Devices::{Console,Keyboard,Interruptor};
-use std::sync::{Mutex, Arc};
-use std::sync::mpsc;
 use std::time::Duration;
+use super::Devices::MemoryMapped;
+use super::Devices::{Console,Keyboard,Interruptor};
+use std::sync::mpsc;
+
 
 pub struct Core {
 
@@ -17,10 +17,10 @@ pub struct Core {
     mem: Memory::Memory,
     flags: Word,
     PC: u32,
-    IrqH_addr: u32,
+    irq_handler_addr: u32,
     EPC: u32,
     verbose: bool,
-    timer_ch: mpsc::Receiver<u32>
+    interrupt_ch: mpsc::Receiver<u32>
 }
 
 
@@ -30,7 +30,7 @@ pub fn new(v: bool) -> Core {
     //init default irq_handler
     mem.setPrivileged(true);
     let DEFAULT_irq = Definitions::DEFAULT_IRQH;
-    if v { println!("Setting up default IRQH with address 0x00000004") }
+    if v { println!("[CORE]: Setting up default IRQH with address 0x00000004") }
     mem.store(4, DEFAULT_irq.len(),&DEFAULT_irq);
     mem.protect(0,DEFAULT_irq.len() as u32+ 4);
     mem.setPrivileged(false);
@@ -42,9 +42,9 @@ pub fn new(v: bool) -> Core {
     mem.mapDevice( keyboard.range_lower, keyboard.range_upper, keyboard);
 
     let (send, recv) = mpsc::channel();
-    Interruptor::new(1000, send);
+    Interruptor::new_default("Clock", 1, &send, v);
 
-    let c = Core {reg: vec![0;32],HI: 0, LO: 0, mem: mem, flags: 0 ,PC: 0, IrqH_addr: 4, EPC: 0, verbose: v, timer_ch: recv};
+    let c = Core {reg: vec![0;32],HI: 0, LO: 0, mem: mem, flags: 0 ,PC: 0, irq_handler_addr: 4, EPC: 0, verbose: v, interrupt_ch: recv};
 
 
     return c;
@@ -95,7 +95,7 @@ impl Core {
         self.flags |= 1 << Definitions::MODE_FLAG;
         self.mem.setPrivileged(true);
         self.EPC = self.PC;
-        self.PC = self.IrqH_addr-4;
+        self.PC = self.irq_handler_addr-4;
     }
 
     /**
@@ -120,7 +120,7 @@ impl Core {
      * irqpc: The address to jump to on interrupt
      */
     pub fn set_IrqHPC(&mut self, irqpc: u32) {
-        self.IrqH_addr = irqpc
+        self.irq_handler_addr = irqpc
     }
 
     /**
@@ -143,7 +143,7 @@ impl Core {
 
             //check if INTERR_FLAG is set in channel only if not privileged
             if self.flags & (0x0000 | 1<< Definitions::MODE_FLAG) == 1 {
-                let received = self.timer_ch.try_recv().unwrap();
+                let received = self.interrupt_ch.try_recv().unwrap();
 
                 //interrupt flag set in channel
                 if received == 1 {
