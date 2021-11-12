@@ -31,7 +31,7 @@ pub fn new(v: bool) -> Core {
     mem.setPrivileged(true);
     let DEFAULT_irq = Definitions::DEFAULT_IRQH;
     if v { println!("[CORE]: Setting up default IRQH with address 0x00000004") }
-    mem.store(4, DEFAULT_irq.len(),&DEFAULT_irq);
+    mem.store(0, DEFAULT_irq.len(),&DEFAULT_irq);
     mem.protect(0,DEFAULT_irq.len() as u32+ 4);
     mem.setPrivileged(false);
 
@@ -44,7 +44,7 @@ pub fn new(v: bool) -> Core {
     let (send, recv) = mpsc::channel();
     Interruptor::new_default("Clock", 1, &send, v);
 
-    let c = Core {reg: vec![0;32],HI: 0, LO: 0, mem: mem, flags: 0 ,PC: 0, irq_handler_addr: 4, EPC: 0, verbose: v, interrupt_ch: recv};
+    let c = Core {reg: vec![0;32],HI: 0, LO: 0, mem: mem, flags: 0 ,PC: 0, irq_handler_addr: 0, EPC: 0, verbose: v, interrupt_ch: recv};
 
 
     return c;
@@ -95,7 +95,7 @@ impl Core {
         self.flags |= 1 << Definitions::MODE_FLAG;
         self.mem.setPrivileged(true);
         self.EPC = self.PC;
-        self.PC = self.irq_handler_addr-4;
+        self.PC = if self.irq_handler_addr != 0 {self.irq_handler_addr-4} else { self.irq_handler_addr };
     }
 
     /**
@@ -232,8 +232,8 @@ impl Core {
             0b000011 => {res = (rt as i32 >> sham as i32) as u32; self.reg[rd] = res;},//sra ; for rust to do shift aritmetic, use signed types
             0b000111 => {res = (rt as i32 >> rs as i32) as u32; self.reg[rd] = res;},   //srav; for rust to do shift aritmetic, use signed types
             0b000110 => {res = rt >> rs; self.reg[rd] = res;},//srlv
-            0b001001 => {self.reg[31] = self.PC; self.PC = rs-4;},//jalr
-            0b001000 => {self.PC = rs-4},//jr
+            0b001001 => {self.reg[31] = self.PC; self.PC = if rs != 0 {rs-4} else {rs};},//jalr
+            0b001000 => {self.PC = if rs != 0 {rs-4} else {rs}},//jr
             0b010000 => {self.reg[rd] = self.HI;},//mfhi
             0b010010 => {self.reg[rd] = self.LO;},//mflo
             0b010001 => {self.HI = rs;},//mthi
@@ -307,10 +307,10 @@ impl Core {
             0b001011 => {if rs < imm { self.reg[rt] = 1;} else { self.reg[rt] = 0;} },//sltiu
             0b011001 => {println!("lhi");},//lhi
             0b011000 => {println!("llo");},//llo
-            0b000100 => { if rs == self.reg[rt] {let jtarg = (self.PC) as i32 + ((imm as i32) <<2); self.PC = jtarg as u32;}; },//beq
-            0b000101 => { if rs != self.reg[rt] {let jtarg = (self.PC) as i32 + ((imm as i32) <<2); self.PC = jtarg as u32;}; },//bne
-            0b000111 => { if rs > 0             {let jtarg = (self.PC) as i32 + ((imm as i32) <<2); self.PC = jtarg as u32;}; },//bgtz
-            0b000110 => { if rs <= self.reg[rt] {let jtarg = (self.PC) as i32 + ((imm as i32) <<2); self.PC = jtarg as u32;}; },//blez
+            0b000100 => { if rs == self.reg[rt] { self.PC = (imm as u32) << 2;}; },//beq
+            0b000101 => { if rs != self.reg[rt] { self.PC = (imm as u32) << 2;}; },//bne
+            0b000111 => { if rs > 0             { self.PC = (imm as u32) << 2;}; },//bgtz
+            0b000110 => { if rs <= self.reg[rt] { self.PC = (imm as u32) << 2;}; },//blez
             0b100000 => {self.reg[rt] = Definitions::from_byte(self.mem.load(rs+imm, 1) );},//lb
             0b100100 => {self.reg[rt] = Definitions::from_byte(self.mem.load(rs+imm, 1) );},//lbu
             0b100001 => {self.reg[rt] = Definitions::from_half(self.mem.load(rs+imm, 2) );},//lh
@@ -363,8 +363,8 @@ impl Core {
         println!("\tJ type: func=0x{:02x} jump_target=0x{:08x}",func,jump_target);
 
         match func {
-            0b000010 => {self.PC = jump_target-4;}
-            0b000011 => {self.reg[31] = self.PC; self.PC = jump_target-4;}
+            0b000010 => {self.PC = if jump_target != 0 {jump_target-4} else {jump_target};}
+            0b000011 => {self.reg[31] = self.PC; self.PC = if jump_target != 0 {jump_target-4} else {jump_target};}
 
             _ => { panic!("Unrecognized J type func {:02x}",func); }
         }
