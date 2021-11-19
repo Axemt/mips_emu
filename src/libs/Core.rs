@@ -28,19 +28,19 @@ pub fn new(v: bool) -> Core {
 
     let mut mem = Memory::new(v);
     //init default irq_handler
-    mem.setPrivileged(true);
+    mem.set_privileged(true);
     let DEFAULT_irq = Definitions::DEFAULT_IRQH;
     let irq_addr: u32 = 0x0;
     if v { println!("[CORE]: Setting up default IRQH with address {:08x}",irq_addr) }
     mem.store(irq_addr as usize, DEFAULT_irq.len(),&DEFAULT_irq);
     mem.protect(irq_addr,DEFAULT_irq.len() as u32 + 4);
-    mem.setPrivileged(false);
+    mem.set_privileged(false);
 
     //add basic mapped devices
     let console  = Box::new(Console::new() );
     let keyboard = Box::new(Keyboard::new() );
-    mem.mapDevice( console.range_lower,console.range_upper, console  );
-    mem.mapDevice( keyboard.range_lower, keyboard.range_upper, keyboard);
+    mem.map_device( console.range_lower,console.range_upper, console  );
+    mem.map_device( keyboard.range_lower, keyboard.range_upper, keyboard);
 
     let (send, recv) = mpsc::channel();
     Interruptor::new_default("Clock", 1, &send, v);
@@ -93,10 +93,24 @@ impl Core {
      */
 
     pub fn interrupt(&mut self) {
-        self.flags |= 1 << Definitions::MODE_FLAG;
-        self.mem.setPrivileged(true);
+        self.set_flag(true, Definitions::MODE_FLAG);
+        self.mem.set_privileged(true);
         self.EPC = self.PC;
         self.PC = if self.irq_handler_addr != 0 {self.irq_handler_addr-4} else { self.irq_handler_addr };
+    }
+
+    pub fn set_flag(&mut self,set: bool, flag: u32) {
+
+        if set { 
+
+            self.flags |= flag;
+
+        } else { 
+
+            //prepare bitmask
+            self.flags &= 0xffffffff & !flag;
+        }
+
     }
 
     /**
@@ -143,19 +157,19 @@ impl Core {
             self.reg[0] = 0;
 
             //check if INTERR_FLAG is set in channel only if not privileged
-            if self.flags & (0x0000 | 1<< Definitions::MODE_FLAG) == 1 {
+            if (self.flags & Definitions::MODE_FLAG) == 1 {
                 let received = self.interrupt_ch.try_recv().unwrap();
 
                 //interrupt flag set in channel
                 if received == 1 {
                     if self.verbose { println!("[CORE]: INTERR_FLAG set; Flags={:08x}",self.flags) }
-                    self.flags |= 1<<Definitions::INTERR_FLAG;
+                    self.set_flag(true, Definitions::INTERR_FLAG);
                     self.interrupt();
                 }
             }
 
             //check if FIN_FLAG is set
-            if self.flags & 1<< Definitions::FIN_FLAG != 0 {
+            if (self.flags & Definitions::FIN_FLAG) != 0 {
                 if self.verbose { println!("------------------\n[CORE]: FIN_FLAG set; Flags={:08x}",self.flags) }
                 break;
             }
@@ -245,8 +259,8 @@ impl Core {
 
         }
 
-        if res == 0 { self.flags |= 1 << Definitions::Z_FLAG } else {self.flags &= 1<<Definitions::Z_FLAG};
-        if (res as i32) < 0 {self.flags |= 1 << Definitions::S_FLAG} else {self.flags &= 1<<Definitions::S_FLAG}
+        self.set_flag(res == 0, Definitions::Z_FLAG);
+        self.set_flag((res as i32) < 0, Definitions::S_FLAG);
 
     }
 
@@ -256,10 +270,10 @@ impl Core {
         //special instruction: RFE
         if code == 0x42000001 {
 
-            let privileged = !(self.flags & (0x0000 | 1<< Definitions::MODE_FLAG) == 1);
+            let privileged = (self.flags & Definitions::MODE_FLAG) != 0;
 
 
-            if self.verbose { println!("\tRFE:EPC={:08x}; privilege status {}",self.EPC, privileged); }
+            if self.verbose { println!("\tRFE:EPC={:08x}; privilege status {}. Flags {:08x}",self.EPC, privileged,self.flags); }
 
             //panic if we are not privileged
             if  !privileged { panic!("Tried to use privileged instruction 0x{:08x} but the mode bitflag was not set to 1; Flags=0x{:08x}",code, self.flags); }
@@ -267,11 +281,11 @@ impl Core {
             //restore PC
             self.PC = self.EPC;
             //disable privileged
-            self.flags &= !(1<<Definitions::MODE_FLAG);
+            self.set_flag(false,Definitions::MODE_FLAG);
 
             if self.verbose { println!("[CORE]: Changed privilege mode to false") }
 
-            self.mem.setPrivileged(false);
+            self.mem.set_privileged(false);
 
             return;
 
@@ -280,15 +294,18 @@ impl Core {
         //special instruction: hlt
         if code == 0x42000010 {
 
-            let privileged = !(self.flags & (0x0000 | 1<< Definitions::MODE_FLAG) == 1);
+            let privileged = (self.flags & Definitions::MODE_FLAG) != 0;
 
             if self.verbose { println!("\tHLT: privilege status: {};",privileged ); }
 
             //panic if we are not privileged
             if  !privileged { panic!("Tried to use privileged instruction 0x{:08x} but the mode bitflag was not set to 1; Flags=0x{:08x}",code, self.flags); }
             
-            //set fin flag
-            self.flags |= 1<<Definitions::FIN_FLAG;
+            //set fin flag, disable privileged
+            self.set_flag(false, Definitions::MODE_FLAG);
+            self.mem.set_privileged(false);
+            
+            self.set_flag(true, Definitions::FIN_FLAG);
 
             return;
 
@@ -404,10 +421,24 @@ fn basic() {
 fn unprivileged_rfe() {
     let mut c: Core = new(true);
 
-    let code = [0x42, 0x00, 0x00, 0x10]; //rfe
-    c.mem.store(0x00ff, 4, &code);
-    c.PC = 0x00ff;
+    let code = [0x42, 0x00, 0x00, 0x01]; //rfe
+    c.mem.store(0x00fff, 4, &code);
+    c.PC = 0x00fff;
+
     c.run();
+}
+
+#[test]
+#[should_panic]
+fn unprivileged_hlt() {
+    let mut c: Core = new(true);
+
+    let code = [0x42, 0x00, 0x00, 0x10]; //hlt
+    c.mem.store(0x00fff, 4, &code);
+    c.PC = 0x00fff;
+
+    c.run();
+
 }
 
 #[test]

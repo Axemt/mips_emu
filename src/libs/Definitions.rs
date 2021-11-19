@@ -202,11 +202,11 @@ pub fn from_byte(contents: &[u8]) -> u32 {
  *  Z|S| |M|F|
  */
 
-pub const Z_FLAG:      u32 = 0;
-pub const S_FLAG:      u32 = 1;
-pub const INTERR_FLAG: u32 = 2;
-pub const MODE_FLAG:   u32 = 3;
-pub const FIN_FLAG:    u32 = 4;
+pub const Z_FLAG:      u32 = 0b00000001;
+pub const S_FLAG:      u32 = 0b00000010;
+pub const INTERR_FLAG: u32 = 0b00000100;
+pub const MODE_FLAG:   u32 = 0b00001000;
+pub const FIN_FLAG:    u32 = 0b00010000;
 
 
 //DEFAULT_IRQH CODE:
@@ -256,7 +256,7 @@ pub const DEFAULT_IRQH: [u8; 172] = [
     0x08, 0x00, 0x00, 0x29, //'j exitirq'
     0x42, 0x00, 0x00, 0x01, //'rfe'
     0x42, 0x00, 0x00, 0x10, //'hlt'
-    
+
 ];
 
 

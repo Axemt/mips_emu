@@ -63,13 +63,13 @@ pub fn new( v: bool) -> Memory{
      * 
      *  m: The new level of permission
      */
-    pub fn setPrivileged(&mut self,m: bool) {
+    pub fn set_privileged(&mut self,m: bool) {
         if self.verbose { println!("[MEM]:Changed privilege mode to {}", m); }
         self.mode_privilege = m;
     }
     
 
-    pub fn mapDevice(&mut self, range_lower: u32, range_upper: u32, device: Box<dyn MemoryMapped>) {
+    pub fn map_device(&mut self, range_lower: u32, range_upper: u32, device: Box<dyn MemoryMapped>) {
 
         if self.verbose { println!("[MEM]: Mapping device to range [0x{:08x}..0x{:08x}]", range_lower, range_upper); }
 
@@ -447,7 +447,7 @@ fn privileged_protected_access() {
 
        m.extend_mem_FAST(0x0000ff00);
        m.protect(0,0x0000fC00);
-       m.setPrivileged(true);
+       m.set_privileged(true);
        
        //correct access   
        m.store(0x0000AA00, 4, &[0x69, 0x69, 0x69, 0x66]);
@@ -463,8 +463,8 @@ fn device_access() {
     let c = Box::new(Devices::Console::new() );
     let k = Box::new(Devices::Keyboard::new() );
 
-    m.mapDevice(c.range_lower, c.range_upper, c);
-    m.mapDevice(k.range_lower, k.range_upper, k);
+    m.map_device(c.range_lower, c.range_upper, c);
+    m.map_device(k.range_lower, k.range_upper, k);
 
     //write to Console
     m.store(0x80000000, 4, b"abcd");
