@@ -16,6 +16,8 @@ pub fn new_default(name: &'static str,timeout: u64, ch_send_r: &mpsc::Sender<u32
 
     let ch_send = ch_send_r.clone();
 
+    if verbose { println!("[{}]: Spawned interruptor with timeout {}",name.to_uppercase(),timeout); }
+
     return thread::Builder::new().name(name.to_string()).spawn(move || {
 
         loop {

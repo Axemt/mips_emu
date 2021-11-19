@@ -84,7 +84,7 @@ pub fn new( v: bool) -> Memory{
      * 
      *  alloc: Amount to extend memory by
     */
-    fn extend_mem(&mut self, mut alloc: usize) {
+    fn extend_mem(& mut self, mut alloc: usize) {
 
         //reduce useless extensions, extend by word mimimum
         if alloc < 4 { alloc = 4; }
@@ -127,11 +127,11 @@ pub fn new( v: bool) -> Memory{
      * 
      *  pointer to slice
     */
-    pub fn load(&mut self,dir: u32 , size: usize) -> &[Byte] {
+    pub fn load(& mut self,dir: u32 , size: usize) -> &[Byte] {
 
         let contents: &[u8];
 
-        for elem in & mut self.protected_ranges {
+        for elem in & self.protected_ranges {
 
             let prot_lo = elem.0;
             let prot_high = elem.1;
@@ -142,6 +142,7 @@ pub fn new( v: bool) -> Memory{
 
         let d = dir as usize;
 
+        //TODO: extend mem *after* the device check so we don't extend if not necessary
         //fake having a 4GB memory by dynamically extending on "OOB" accesses
         if d+size > self.mem_size { self.extend_mem(d+size-self.mem_size); }
         
@@ -182,7 +183,7 @@ pub fn new( v: bool) -> Memory{
      * 
      *  contents: bytes to store
     */
-    pub fn store(&mut self, dir: usize ,size: usize, contents: &[Byte]) {
+    pub fn store(& mut self, dir: usize ,size: usize, contents: & [Byte]) {
 
         let d = dir as u32;
 
@@ -195,8 +196,7 @@ pub fn new( v: bool) -> Memory{
             if d < prot_high && d >= prot_lo && self.mode_privilege == false { panic!("Tried to access protected region range [0x{:08x}..0x{:08x}] at address 0x{:08x}",prot_lo, prot_high,dir); }
 
         }
-        //extend dynamically
-        if dir+size >= self.mem_size { self.extend_mem(dir+size - self.mem_size);}
+        
 
         for elem in & mut self.devices {
             
@@ -212,10 +212,10 @@ pub fn new( v: bool) -> Memory{
 
                 return;
             }
-
-
         }
 
+        //extend dynamically
+        if dir+size >= self.mem_size { self.extend_mem(dir+size - self.mem_size);}
 
         if self.verbose { println!("[MEM]: storing: align={} dir={:08x?} contents={:02x?}", size, dir, contents); }
         // copy into mem array, consume elements
@@ -241,14 +241,14 @@ pub fn new( v: bool) -> Memory{
      * 
      * Note that this overwrites memory and ignores reserved ranges for writing
     */
-    pub fn load_bin(&mut self, bin: &str) {
+    pub fn load_bin(& mut self, bin: &str) {
         let mut f = File::open(bin).unwrap();
         let mut fBuffer: Vec<u8> = Vec::new();
 
         let fLen = f.metadata().unwrap().len();
         
         //read contents of file into buffer
-        f.read_to_end(&mut fBuffer).unwrap();
+        f.read_to_end(& mut fBuffer).unwrap();
 
 
         //raw copy into mem
@@ -262,7 +262,7 @@ pub fn new( v: bool) -> Memory{
     }
 
 
-    pub fn load_RELF(&mut self, RELF: &str)  -> u32 {
+    pub fn load_RELF(& mut self, RELF: &str)  -> u32 {
 
 
         //read file to descriptor, allocate buffer as Vec

@@ -30,9 +30,10 @@ pub fn new(v: bool) -> Core {
     //init default irq_handler
     mem.setPrivileged(true);
     let DEFAULT_irq = Definitions::DEFAULT_IRQH;
-    if v { println!("[CORE]: Setting up default IRQH with address 0x00000004") }
-    mem.store(0, DEFAULT_irq.len(),&DEFAULT_irq);
-    mem.protect(0,DEFAULT_irq.len() as u32+ 4);
+    let irq_addr: u32 = 0x0;
+    if v { println!("[CORE]: Setting up default IRQH with address {:08x}",irq_addr) }
+    mem.store(irq_addr as usize, DEFAULT_irq.len(),&DEFAULT_irq);
+    mem.protect(irq_addr,DEFAULT_irq.len() as u32 + 4);
     mem.setPrivileged(false);
 
     //add basic mapped devices
@@ -44,7 +45,7 @@ pub fn new(v: bool) -> Core {
     let (send, recv) = mpsc::channel();
     Interruptor::new_default("Clock", 1, &send, v);
 
-    let c = Core {reg: vec![0;32],HI: 0, LO: 0, mem: mem, flags: 0 ,PC: 0, irq_handler_addr: 0, EPC: 0, verbose: v, interrupt_ch: recv};
+    let c = Core {reg: vec![0;32],HI: 0, LO: 0, mem: mem, flags: 0 ,PC: 0, irq_handler_addr: irq_addr, EPC: 0, verbose: v, interrupt_ch: recv};
 
 
     return c;
@@ -253,12 +254,16 @@ impl Core {
     fn handoff_I(&mut self, code: Word) {
 
         //special instruction: RFE
-        if code == 0x42000010 {
+        if code == 0x42000001 {
 
-            if self.verbose { println!("\tRFE:EPC={:08x}",self.EPC); }
+            let privileged = !(self.flags & (0x0000 | 1<< Definitions::MODE_FLAG) == 1);
+
+
+            if self.verbose { println!("\tRFE:EPC={:08x}; privilege status {}",self.EPC, privileged); }
 
             //panic if we are not privileged
-            if  !(self.flags & (0x0000 | 1<< Definitions::MODE_FLAG) == 1) { panic!("Tried to use privileged instruction 0x{:08x} but the mode bitflag was not set to 1; Flags=0x{:08x}",code, self.flags); }
+            if  !privileged { panic!("Tried to use privileged instruction 0x{:08x} but the mode bitflag was not set to 1; Flags=0x{:08x}",code, self.flags); }
+            
             //restore PC
             self.PC = self.EPC;
             //disable privileged
@@ -273,7 +278,7 @@ impl Core {
         }
 
         //special instruction: hlt
-        if code == 0x42000001 {
+        if code == 0x42000010 {
 
             let privileged = !(self.flags & (0x0000 | 1<< Definitions::MODE_FLAG) == 1);
 
@@ -281,6 +286,8 @@ impl Core {
 
             //panic if we are not privileged
             if  !privileged { panic!("Tried to use privileged instruction 0x{:08x} but the mode bitflag was not set to 1; Flags=0x{:08x}",code, self.flags); }
+            
+            //set fin flag
             self.flags |= 1<<Definitions::FIN_FLAG;
 
             return;
@@ -307,10 +314,10 @@ impl Core {
             0b001011 => {if rs < imm { self.reg[rt] = 1;} else { self.reg[rt] = 0;} },//sltiu
             0b011001 => {println!("lhi");},//lhi
             0b011000 => {println!("llo");},//llo
-            0b000100 => { if rs == self.reg[rt] { self.PC = (imm as u32) << 2;}; },//beq
-            0b000101 => { if rs != self.reg[rt] { self.PC = (imm as u32) << 2;}; },//bne
-            0b000111 => { if rs > 0             { self.PC = (imm as u32) << 2;}; },//bgtz
-            0b000110 => { if rs <= self.reg[rt] { self.PC = (imm as u32) << 2;}; },//blez
+            0b000100 => { if rs == self.reg[rt] { self.PC += (imm as u32) << 2;}; },//beq
+            0b000101 => { if rs != self.reg[rt] { self.PC += (imm as u32) << 2;}; },//bne
+            0b000111 => { if rs > 0             { self.PC += (imm as u32) << 2;}; },//bgtz
+            0b000110 => { if rs <= self.reg[rt] { self.PC += (imm as u32) << 2;}; },//blez
             0b100000 => {self.reg[rt] = Definitions::from_byte(self.mem.load(rs+imm, 1) );},//lb
             0b100100 => {self.reg[rt] = Definitions::from_byte(self.mem.load(rs+imm, 1) );},//lbu
             0b100001 => {self.reg[rt] = Definitions::from_half(self.mem.load(rs+imm, 2) );},//lh
@@ -360,7 +367,7 @@ impl Core {
         let func          = (code & 0xfc000000) >> 26;
         let jump_target   = (code & !0xfc000000) << 2 ;
 
-        println!("\tJ type: func=0x{:02x} jump_target=0x{:08x}",func,jump_target);
+        if self.verbose { println!("\tJ type: func=0x{:02x} jump_target=0x{:08x}",func,jump_target); }
 
         match func {
             0b000010 => {self.PC = if jump_target != 0 {jump_target-4} else {jump_target};}
