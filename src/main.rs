@@ -12,7 +12,7 @@ use clap::{Arg,App};
 fn main() {
 
     let matches = App::new("Mips Runtime")
-                    .version("0.85 built on Oct 15th, 2021" )
+                    .version("0.90 built on Nov 23, 2021" )
                     .author("Axemt <github.com/Axemt>")
                     .about("A MIPS R3000 32b emulator")
                     .arg(Arg::with_name("File")

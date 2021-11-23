@@ -1,4 +1,4 @@
-use super::super::Definitions::INTERR_FLAG;
+use super::super::Definitions::Arch::INTERR_FLAG;
 use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;

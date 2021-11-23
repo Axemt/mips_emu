@@ -1,7 +1,7 @@
 use super::MemoryMapped;
 use std::io;
 use std::io::Read;
-use super::super::Definitions::from_sizeN;
+use super::super::Definitions::Utils::from_sizeN;
 
 pub struct Keyboard {
     pub range_lower: u32,

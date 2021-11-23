@@ -1,5 +1,5 @@
-use super::Definitions::{RelfHeader32,SectionHeader32};
-use super::Definitions::{Byte, Half, Word};
+use super::Definitions::RELFHeaders::{RelfHeader32,SectionHeader32};
+use super::Definitions::Utils::{Byte, Half, Word};
 use super::Definitions;
 use super::Devices::MemoryMapped;
 use std::panic;

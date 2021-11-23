@@ -1,5 +1,5 @@
 use super::MemoryMapped;
-use super::super::Definitions::{from_sizeN};
+use super::super::Definitions::Utils::{from_sizeN};
 
 #[derive(Copy, Clone)]
 
