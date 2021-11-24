@@ -106,42 +106,35 @@ pub fn from_byte(contents: &[u8]) -> u32 {
     return word;
 }
 
-/**
- * Converts the bytes of an u32 to the signed representation 
- * of the number, still in u32 format
- * 
- * NOTE: Since the value is still returned as u32, it has no sign
- * and therefore is considered positive by default
- * 
- *          n = -70;
- *          conv = to_signed(0xffffffba);
- *          //0xffffffba = -70
- *          assert_eq!(n, -(conv as i32));
- * 
- * ARGS:
- * 
- *  n: the number to convert
- * 
- * RETURNS
- * 
- *  signed representation of this number as u32
- */
-pub fn to_signed<const size: u8>(n: u32) -> u32 
-{
-    //2's complement
-    let _ret = (!n).overflowing_add(1).0;
-
-    //there's probably a better way than using match, parametric types restricting to primitives? how?
-    match size {
-        8 =>  { return (_ret as u8) as u32; }
-        16 => { return (_ret as u16) as u32; }
-        32 => { return _ret; }
-        _ => { panic!("Unknown size required: {}", size); }
-
+#[macro_use]
+pub mod Macros {
+    /**
+     * Converts the bytes of an u32 to the signed representation 
+     * of the number, still in u32 format
+     * 
+     * NOTE: Since the value is still returned as u32, it has no sign
+     * and therefore is considered positive by default
+     * 
+     *          n = -70;
+     *          conv = to_signed!(0xffffffba, u16);
+     *          //0xffffffba = -70
+     *          assert_eq!(n, -(conv as i32));
+     * 
+     * ARGS:
+     * 
+     *  n: the number to convert
+     * 
+     * RETURNS
+     * 
+     *  signed representation of this number as u32
+     */
+    #[macro_export]
+    macro_rules! to_signed {
+        ($n: expr, $t: path) => {
+            (!$n as u32).overflowing_add(1).0 as $t as u32
+        };
     }
-
 }
-
 
 /**
  *  TESTS
@@ -164,13 +157,18 @@ fn conversions() {
 
     let mut n: i32 = -1;
     //0xffffffff = -1
-    let mut conv = to_signed::<32>(0xffffffff);
+    let mut conv = to_signed!(0xffffffff,u32);
     assert_eq!(n,-(conv as i32));
 
     n = -70;
-    conv = to_signed::<32>(0xffffffba);
-    //0xffffffba = -70
+    conv = to_signed!(0xffffffba, u32);
     assert_eq!(n, -(conv as i32));
+
+    let m: i16 = -70;
+    conv = to_signed!(0xffba,u16);
+    //0xffba = -70
+    assert_eq!(m, -(conv as i16));
+
 
 }
 

@@ -4,6 +4,9 @@ use super::Definitions::Stats;
 use super::Definitions::Arch;
 use super::Definitions::Utils;
 
+#[macro_use]
+use crate::to_signed;
+
 use std::panic;
 use std::time::Instant;
 use std::time::Duration;
@@ -343,7 +346,7 @@ impl Core {
         let imm_sign_positive  = (code & 0b00000000000000001000000000000000) == 0;
 
         if self.verbose { 
-            println!("\tI-type: func={:02x} rs={} rt={} imm={}{} ; code =0x{:08x?}",func,rs,rt,if imm_sign_positive {"+"} else {"-"} ,Utils::to_signed::<16>(imm),code); 
+            println!("\tI-type: func={:02x} rs={} rt={} imm={}{} ; code =0x{:08x?}",func,rs,rt,if imm_sign_positive {"+"} else {"-"} ,to_signed!(imm,u16),code); 
         }
 
         match func {
@@ -359,10 +362,10 @@ impl Core {
             0b001011 => {if rs < imm { self.reg[rt] = 1;} else { self.reg[rt] = 0;} },//sltiu
             0b011001 => {println!("lhi");},//lhi
             0b011000 => {println!("llo");},//llo
-            0b000100 => { if rs == self.reg[rt] { if imm_sign_positive { self.PC = self.PC.overflowing_add(imm << 2).0;} else { self.PC = self.PC.overflowing_sub((Utils::to_signed::<16>(imm<<2))).0 }}; },//beq
-            0b000101 => { if rs != self.reg[rt] { if imm_sign_positive { self.PC = self.PC.overflowing_add(imm << 2).0;} else { self.PC = self.PC.overflowing_sub((Utils::to_signed::<16>(imm<<2))).0 }}; },//bne
-            0b000111 => { if rs > 0             { if imm_sign_positive { self.PC = self.PC.overflowing_add(imm << 2).0;} else { self.PC = self.PC.overflowing_sub((Utils::to_signed::<16>(imm<<2))).0 }}; },//bgtz
-            0b000110 => { if rs <= self.reg[rt] { if imm_sign_positive { self.PC = self.PC.overflowing_add(imm << 2).0;} else { self.PC = self.PC.overflowing_sub((Utils::to_signed::<16>(imm<<2))).0 }}; },//blez
+            0b000100 => { if rs == self.reg[rt] { if imm_sign_positive { self.PC = self.PC.overflowing_add(imm << 2).0;} else { self.PC = self.PC.overflowing_sub(to_signed!(imm<<2, u16)).0 }}; },//beq
+            0b000101 => { if rs != self.reg[rt] { if imm_sign_positive { self.PC = self.PC.overflowing_add(imm << 2).0;} else { self.PC = self.PC.overflowing_sub(to_signed!(imm<<2, u16)).0 }}; },//bne
+            0b000111 => { if rs > 0             { if imm_sign_positive { self.PC = self.PC.overflowing_add(imm << 2).0;} else { self.PC = self.PC.overflowing_sub(to_signed!(imm<<2, u16)).0 }}; },//bgtz
+            0b000110 => { if rs <= self.reg[rt] { if imm_sign_positive { self.PC = self.PC.overflowing_add(imm << 2).0;} else { self.PC = self.PC.overflowing_sub(to_signed!(imm<<2, u16)).0 }}; },//blez
             0b100000 => {self.reg[rt] = Utils::from_byte(self.mem.load(rs+imm, 1) );},//lb
             0b100100 => {self.reg[rt] = Utils::from_byte(self.mem.load(rs+imm, 1) );},//lbu
             0b100001 => {self.reg[rt] = Utils::from_half(self.mem.load(rs+imm, 2) );},//lh
