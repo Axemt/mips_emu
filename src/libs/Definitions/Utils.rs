@@ -116,8 +116,8 @@ pub mod Macros {
      * and therefore is considered positive by default
      * 
      *          n = -70;
-     *          conv = to_signed!(0xffffffba, u16);
-     *          //0xffffffba = -70
+     *          conv = to_signed!(0xffba, u16);
+     *          //0xffba = -70
      *          assert_eq!(n, -(conv as i32));
      * 
      * ARGS:
@@ -132,6 +132,13 @@ pub mod Macros {
     macro_rules! to_signed {
         ($n: expr, $t: path) => {
             (!$n as u32).overflowing_add(1).0 as $t as u32
+        };
+    }
+
+    #[macro_export]
+    macro_rules! to_signed_cond {
+        ($n: expr, $is_unsigned: expr, $t: path) => {
+            if {$is_unsigned} { $n as u32 } else { to_signed!($n, $t) }
         };
     }
 }

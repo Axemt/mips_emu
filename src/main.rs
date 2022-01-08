@@ -1,3 +1,4 @@
+#![feature(bigint_helper_methods)]
 mod libs;
 use libs::Core;
 use std::panic;

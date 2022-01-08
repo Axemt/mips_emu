@@ -29,7 +29,7 @@ impl MemoryMapped for Keyboard {
 
         }
 
-        return &self.buffer[..size];
+        &self.buffer[..size]
 
         
 
@@ -56,7 +56,7 @@ impl MemoryMapped for Keyboard {
  */
 pub fn new() -> Keyboard {
 
-    return Keyboard { range_lower: 0x80000008, range_upper: 0x8000000f, buffer: Vec::<u8>::new(), mode: 0 }
+    Keyboard { range_lower: 0x80000008, range_upper: 0x8000000f, buffer: Vec::<u8>::new(), mode: 0 }
 
 }
 

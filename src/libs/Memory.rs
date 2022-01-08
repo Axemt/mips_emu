@@ -1,7 +1,7 @@
 use super::Definitions::RELFHeaders::{RelfHeader32,SectionHeader32};
 use super::Definitions::Utils::{Byte, Half, Word};
-use super::Definitions;
 use super::Devices::MemoryMapped;
+
 use std::panic;
 use std::fs::File;
 use std::io::Read;
@@ -64,7 +64,7 @@ pub fn new( v: bool) -> Memory{
      *  m: The new level of permission
      */
     pub fn set_privileged(&mut self,m: bool) {
-        if self.verbose { println!("[MEM]:Changed privilege mode to {}", m); }
+        if self.verbose { println!("[MEM]: Changed privilege mode to {}", m); }
         self.mode_privilege = m;
     }
     
@@ -136,7 +136,7 @@ pub fn new( v: bool) -> Memory{
             let prot_lo = elem.0;
             let prot_high = elem.1;
 
-            if dir < prot_high && dir >= prot_lo && self.mode_privilege == false { panic!("Tried to access protected region range [0x{:08x}..0x{:08x}] at address 0x{:08x}",prot_lo, prot_high,dir); }
+            if dir < prot_high && dir >= prot_lo && !self.mode_privilege { panic!("Tried to access protected region range [0x{:08x}..0x{:08x}] at address 0x{:08x}",prot_lo, prot_high,dir); }
 
         }   
 
@@ -155,7 +155,7 @@ pub fn new( v: bool) -> Memory{
             //check if in range of a device
             if dir >= dev_lower && dir <= dev_upper { 
 
-                if self.verbose { println!("[MEM]: Read access to Memory Mapped Device at address {:08x}; Handing off...", dir); }
+                if self.verbose { println!("[MEM]: Read access to Memory Mapped Device at address 0x{:08x}; Handing off...", dir); }
 
                 contents =  elem.2.read(dir, size) ;
                 return contents;
@@ -206,7 +206,7 @@ pub fn new( v: bool) -> Memory{
             //check if in range of a device
             if d >= dev_lower && d <= dev_upper { 
 
-                if self.verbose { println!("[MEM]: Write access to Memory Mapped Device at address {:08x} with contents {:?}; Handing off...", dir,contents); }
+                if self.verbose { println!("[MEM]: Write access to Memory Mapped Device at address 0x{:08x} with contents {:?}; Handing off...", dir,contents); }
 
                 elem.2.write(dir, size, contents);
 
@@ -230,7 +230,7 @@ pub fn new( v: bool) -> Memory{
                 to_insert = 0;
             }
             self.mem_array[dir+byte] = to_insert;
-            byte = byte + 1;
+            byte += 1;
 
         }
 
@@ -253,11 +253,9 @@ pub fn new( v: bool) -> Memory{
 
         //raw copy into mem
         self.extend_mem_FAST(fLen as usize);
-
-        let mut offset = 0;
-        for b in &fBuffer {
-            self.mem_array[offset] = *b;
-            offset += 1;
+        
+        for (offset, b) in fBuffer.iter().enumerate() {
+            self.mem_array[offset] = *b
         }
     }
 

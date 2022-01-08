@@ -4,11 +4,13 @@
  *  Z|S| |M|F|
  */
 
-pub const Z_FLAG:      u32 = 0b00000001;
-pub const S_FLAG:      u32 = 0b00000010;
-pub const INTERR_FLAG: u32 = 0b00000100;
-pub const MODE_FLAG:   u32 = 0b00001000;
-pub const FIN_FLAG:    u32 = 0b00010000;
+pub const Z_FLAG:      u32 = 1;
+pub const S_FLAG:      u32 = 1<<1;
+pub const INTERR_FLAG: u32 = 1<<2;
+pub const IENABLE_FLAG: u32= 1<<3;
+pub const MODE_FLAG:   u32 = 1<<4;
+pub const FIN_FLAG:    u32 = 1<<5;
+
 
 
 //DEFAULT_IRQH CODE:
