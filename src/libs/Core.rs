@@ -58,9 +58,8 @@ pub fn new(v: bool) -> Core {
     let mut core = Core {reg: vec![0;32],HI: 0, LO: 0, mem: mem, flags: 0 ,PC: 0, irq_handler_addr: irq_addr, EPC: 0, IntEnableOnNext: false , verbose: v, interrupt_ch: recv};
     core.set_flag(true, Arch::IENABLE_FLAG);
 
-    
-    core
 
+    core
 }
 
 
@@ -68,27 +67,30 @@ impl Core {
 
     /**
      * Loads a RELF executable into memory and sets PC
-     * 
+     *
      * ARGS:
-     * 
-     *  path: Path to executable 
+     *
+     *  path: Path to executable
     */
     pub fn load_RELF(&mut self, path: &str) {
 
-        self.PC = self.mem.load_RELF(path);
+        match self.mem.load_RELF(path) {
+            Ok(pc) => self.PC = pc,
+            Err(eobj) => panic!("{eobj}")
+        }
 
     }
 
     /**
      * Loads a raw binary into memory and sets PC
-     * 
-     * Note that this starts writing from address 0x00000000 
+     *
+     * Note that this starts writing from address 0x00000000
      * and ignores reserved sections of memory
-     * 
+     *
      * ARGS:
-     * 
+     *
      *  path: Path to binary file
-     * 
+     *
      *  entry: PC to start execution
     */
     pub fn load_bin(&mut self, path: &str, entry: u32) {
@@ -100,24 +102,24 @@ impl Core {
 
     /**
      * Interrupts current execution and jumps to irqH
-     * 
+     *
      */
 
     pub fn interrupt(&mut self) {
-        self.set_flag(true, Arch::MODE_FLAG);
-        self.set_flag(false, Arch::IENABLE_FLAG);
+        self.set_flag(true, Arch::MODE_FLAG); //enter privileged mode
         self.mem.set_privileged(true);
+        self.set_flag(false, Arch::IENABLE_FLAG); //disable interrupts
         self.EPC = self.PC;
         self.PC = u32::saturating_sub(self.irq_handler_addr, 4);
     }
 
     /**
      *  Activates or deactivates a flag on the processor
-     * 
+     *
      *  ARGS:
-     * 
+     *
      *  set: The value to set the flag to
-     * 
+     *
      *  flag: The flag to modify
      */
     pub fn set_flag(&mut self,set: bool, flag: u32) {
@@ -125,13 +127,12 @@ impl Core {
 
         if self.verbose { println!("[CORE]: Setting flag {flag} to {set}"); }
 
-        if set { 
+        if set {
 
             self.flags |= flag;
 
-        } else { 
+        } else {
 
-            //prepare bitmask
             self.flags &= !flag;
         }
 
@@ -139,13 +140,13 @@ impl Core {
 
     /**
      *  Adds the range proct_low .. proct_high to the set of protected address ranges
-     * 
+     *
      *  ARGS:
-     * 
+     *
      *  proct_low: Lowest address of the reserved range
-     * 
+     *
      *  proct_high: Highest address of the reserved range
-     * 
+     *
      */
     pub fn protect_mem(&mut self, proct_low: u32, proct_high: u32) {
         self.mem.protect(proct_low,proct_high);
@@ -153,9 +154,9 @@ impl Core {
 
     /**
      * Sets the IrqH PC for exceptions
-     * 
+     *
      * ARGS:
-     * 
+     *
      * irqpc: The address to jump to on interrupt
      */
     pub fn set_IrqHPC(&mut self, irq_pc: u32) {
@@ -163,9 +164,9 @@ impl Core {
     }
 
     /**
-     * Starts running code at PC. 
-     * 
-     * Note: this is an infinite loop, please end your code segments via a syscall
+     * Starts running code at PC.
+     *
+     * Note: this is an infinite loop, please end your code segments via a syscall 10
     */
     pub fn run(&mut self) {
 
@@ -186,7 +187,13 @@ impl Core {
 
             // end of instruction routines
 
-            
+            //check if FIN_FLAG is set
+            if (self.flags & Arch::FIN_FLAG) != 0 {
+                if self.verbose { println!("------------------\n[CORE]: FIN_FLAG set; Flags={:08x}",self.flags) }
+                stat.mark_finished();
+                break;
+            }
+
             // flag set if the previous instruction was RFE. We ensure progress by allowing
             // at least one instruction executes before the interrupt handler fires again.
             // There's probably a better way to do this
@@ -196,19 +203,12 @@ impl Core {
                 self.set_flag(true, Arch::IENABLE_FLAG);
             }
 
-            //check if FIN_FLAG is set
-            if (self.flags & Arch::FIN_FLAG) != 0 {
-                if self.verbose { println!("------------------\n[CORE]: FIN_FLAG set; Flags={:08x}",self.flags) }
-                stat.mark_finished();
-                break;
-            }
-
             //else, check if INTERR_FLAG is set in channel only if not privileged
             if (self.flags & Arch::IENABLE_FLAG) != 0 && (self.flags & Arch::MODE_FLAG) == 0 {
                 match self.interrupt_ch.try_recv() {
                     Ok(_) => { self.set_flag(true, Arch::INTERR_FLAG); },
                     Err(_) => {},
-                };
+                }
 
                 //interrupt flag set in channel
                 if (self.flags & Arch::INTERR_FLAG) != 0 {
@@ -273,8 +273,8 @@ impl Core {
         let rt_sign_positive = rt & 0x80000000 == 0;
         let rs_sign_positive = rs & 0x80000000 == 0;
 
-        if self.verbose { 
-            println!("\tR-type: rs={} rt={} rd={} sham={} func={:02x}; code =0x{:08x?}",rs,rt,rd,sham,func,code); 
+        if self.verbose {
+            println!("\tR-type: rs={} rt={} rd={} sham={} func={:02x}; code =0x{:08x?}",rs,rt,rd,sham,func,code);
         }
 
         //non-zero value for flag check after
@@ -293,6 +293,7 @@ impl Core {
             0b011010 => {self.LO = rs / rt; self.HI = rs % rt;},          //div
             0b011011 => {self.LO = rs.saturating_div(rt); self.HI = rs % rt;}, //divu
             0b011000 => {
+                //destructuring assignments are unstable
                 let m_tupl = (to_signed_cond!(rs, rs_sign_positive, u32)).widening_mul(to_signed_cond!(rt, rt_sign_positive, u32));
 
                 self.HI = m_tupl.0;
@@ -338,9 +339,9 @@ impl Core {
 
             //panic if we are not privileged
             if  !privileged { panic!("Tried to use privileged instruction 0x{:08x} but the mode bitflag was not set to 1; Flags=0x{:08x}",code, self.flags); }
-            
+
             //restore PC
-            self.PC = self.EPC;
+            self.PC = self.EPC - 4; 
             //disable privileged
             self.set_flag(false,Arch::MODE_FLAG);
             self.IntEnableOnNext = true;
@@ -363,11 +364,11 @@ impl Core {
 
             //panic if we are not privileged
             if  !privileged { panic!("Tried to use privileged instruction 0x{:08x} but the mode bitflag was not set to 1; Flags=0x{:08x}",code, self.flags); }
-            
+
             //set fin flag, disable privileged
             self.set_flag(false, Arch::MODE_FLAG);
             self.mem.set_privileged(false);
-            
+
             self.set_flag(true, Arch::FIN_FLAG);
 
             return;
@@ -375,15 +376,15 @@ impl Core {
         }
 
 
-        let func = (code & 0b11111100000000000000000000000000) >> 26; 
+        let func = (code & 0b11111100000000000000000000000000) >> 26;
         let rs   = self.reg[((code & 0b00000011111000000000000000000000) >> 21) as usize];
         let rt   = ((code & 0b00000000000111110000000000000000) >> 16) as usize;
         let imm  = code & 0b00000000000000001111111111111111;
 
         let imm_sign_positive  = (code & 0b00000000000000001000000000000000) == 0;
 
-        if self.verbose { 
-            println!("\tI-type: func={:02x} rs={} rt={} imm={}{} ; code =0x{:08x?}",func,rs,rt,if imm_sign_positive {"+"} else {"-"} ,to_signed!(imm,u16),code); 
+        if self.verbose {
+            println!("\tI-type: func={:02x} rs={} rt={} imm={}{} ; code =0x{:08x?}",func,rs,rt,if imm_sign_positive {"+"} else {"-"} ,to_signed!(imm,u16),code);
         }
 
         match func {
@@ -491,7 +492,7 @@ fn backwards_jumps() {
 
     c.mem.set_privileged(true);
     c.set_flag(true, Arch::MODE_FLAG);
-    
+
     c.mem.store(start, 4, &hlt);
     c.mem.store(start + 4, 4, &backj);
     c.PC = start as u32;
@@ -501,7 +502,7 @@ fn backwards_jumps() {
 
 #[test]
 fn long_compute() {
-    
+
     let mut c: Core = new(true);
 
     c.load_RELF("src/libs/testbins/perf_test.s.relf");

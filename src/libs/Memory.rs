@@ -1,10 +1,12 @@
 use super::Definitions::RELFHeaders::{RelfHeader32,SectionHeader32};
+use super::Definitions::Errors::HeaderError;
 use super::Definitions::Utils::{Byte, Half, Word};
 use super::Devices::MemoryMapped;
 
 use std::panic;
 use std::fs::File;
 use std::io::Read;
+use std::io;
 
 pub struct Memory {
 
@@ -84,14 +86,11 @@ pub fn new( v: bool) -> Memory{
      * 
      *  alloc: Amount to extend memory by
     */
-    fn extend_mem(& mut self, mut alloc: usize) {
+    fn extend_mem(& mut self, alloc: usize) {
 
         //reduce useless extensions, extend by word mimimum
-        if alloc < 4 { alloc = 4; }
-        
-
         // extend by appending with empty vec of alloc length, avoid using resize     
-        self.mem_array.extend(&vec![0;alloc]);
+        self.mem_array.extend(&vec![0; if alloc > 4 {alloc} else {4} ]);
 
         self.mem_size += alloc;
         if self.verbose { println!("[MEM]: extend_mem adding {} bytes. New size is: {}. Highest address is: 0x{:x}",alloc,self.mem_size,self.mem_size) }
@@ -241,39 +240,35 @@ pub fn new( v: bool) -> Memory{
      * 
      * Note that this overwrites memory and ignores reserved ranges for writing
     */
-    pub fn load_bin(& mut self, bin: &str) {
-        let mut f = File::open(bin).unwrap();
+    pub fn load_bin(& mut self, bin: &str) -> Result<(), io::Error> {
         let mut fBuffer: Vec<u8> = Vec::new();
-
-        let fLen = f.metadata().unwrap().len();
+        File::open(bin)?.read_to_end(& mut fBuffer)?;
         
         //read contents of file into buffer
-        f.read_to_end(& mut fBuffer).unwrap();
 
 
         //raw copy into mem
-        self.extend_mem_FAST(fLen as usize);
+        self.extend_mem_FAST(fBuffer.len());
         
         for (offset, b) in fBuffer.iter().enumerate() {
             self.mem_array[offset] = *b
         }
+
+        Ok(())
     }
 
 
-    pub fn load_RELF(& mut self, RELF: &str)  -> u32 {
+    pub fn load_RELF(& mut self, RELF: &str)  -> Result<u32, HeaderError> {
 
 
         //read file to descriptor, allocate buffer as Vec
-        let mut f = File::open(RELF).unwrap();
         let mut fBuffer: Vec<Byte> = Vec::new();
-
-        
         //read contents of file into buffer
-        f.read_to_end(&mut fBuffer).unwrap();
+        File::open(RELF)?.read_to_end(& mut fBuffer)?;
 
         // unpack
         let s_relf_header = structure!(">I5B7s2H5I6H");
-        let tuple_relf_header = s_relf_header.unpack(&fBuffer[0..52]).unwrap();
+        let tuple_relf_header = s_relf_header.unpack(&fBuffer[0..52])?;
 
         //cast
         let relf_header: RelfHeader32 = RelfHeader32::from_tuple(tuple_relf_header);
@@ -283,15 +278,19 @@ pub fn new( v: bool) -> Memory{
         }
 
         //sanity checks
-        assert_eq!(relf_header.e_ident_MAG,0x7f454c46,"ELF Magic Number not found"); //has magic number
-        assert_eq!(relf_header.e_ident_CLASS,0x01,"The file is not a 32b architecture"); // is 32b
-        assert_eq!(relf_header.e_type,0x02,"The file is not an executable"); // is executable
-        assert_eq!(relf_header.e_machine,0x08,"This executable's architecture is not MIPS"); // is mips architecture
+        if relf_header.e_ident_MAG != 0x7f454c46 { return Err(HeaderError::MagicError) }
+        //assert_eq!(relf_header.e_ident_MAG,0x7f454c46,"ELF Magic Number not found"); //has magic number
+        if relf_header.e_ident_CLASS != 0x01 { return Err(HeaderError::ArchError) }
+        //assert_eq!(relf_header.e_ident_CLASS,0x01,"The file is not a 32b architecture"); // is 32b
+        if relf_header.e_type != 0x02 { return Err(HeaderError::PermExecError(String::from("This file is not an executable"))) }
+        //assert_eq!(relf_header.e_type,0x02,"The file is not an executable"); // is executable
+        if relf_header.e_machine != 0x08 { return Err(HeaderError::ArchError) }
+        //assert_eq!(relf_header.e_machine,0x08,"This executable's architecture is not MIPS"); // is mips architecture
 
 
         //unpack
         let s_header = structure!(">8I");
-        let tuple_prog_header = s_header.unpack(&fBuffer[52..(52+relf_header.e_phentsize) as usize]).unwrap();
+        let tuple_prog_header = s_header.unpack(&fBuffer[52..(52+relf_header.e_phentsize) as usize])?;
         //cast
         let prog_header : SectionHeader32 = SectionHeader32::from_tuple(tuple_prog_header);
 
@@ -299,8 +298,10 @@ pub fn new( v: bool) -> Memory{
             println!("found PROGRAM SectionHeader32!:\n\t{:x?}",prog_header);
         }
 
-        assert_eq!(prog_header.p_flags,0x05000000,"This text segment is not Readable and Executable"); // Readable, Executable
-        assert_eq!(prog_header.p_type,0x1,"This text segment is not Loadable"); //is loadable segment
+        if prog_header.p_flags != 0x05000000 { return Err(HeaderError::PermExecError(String::from("The text segment is not Readable and Executable"))) }
+        //assert_eq!(prog_header.p_flags,0x05000000,"This text segment is not Readable and Executable"); // Readable, Executable
+        if prog_header.p_type != 0x1 { return Err(HeaderError::PermExecError(String::from("The text segment is not Loadable"))) }
+        //assert_eq!(prog_header.p_type,0x1,"This text segment is not Loadable"); //is loadable segment
 
 
         //unpack
@@ -313,8 +314,10 @@ pub fn new( v: bool) -> Memory{
         }
 
         //sanity checks
-        assert_eq!(data_header.p_flags,0x06000000,"This data segment is not Readable and Writeable"); // Readable, Writeable
-        assert_eq!(data_header.p_type,0x1,"This data segment is not Loadable"); //is loadable segment
+        if data_header.p_flags != 0x06000000 { return Err(HeaderError::PermExecError(String::from("The data segment is not Readable and Writeable"))) }
+        //assert_eq!(data_header.p_flags,0x06000000,"This data segment is not Readable and Writeable"); // Readable, Writeable
+        if data_header.p_type != 0x1 { return Err(HeaderError::PermExecError(String::from("The data segment is not Loadable"))) }
+        //assert_eq!(data_header.p_type,0x1,"This data segment is not Loadable"); //is loadable segment
 
 
         //extract code and data raws
@@ -352,9 +355,7 @@ pub fn new( v: bool) -> Memory{
             offset += 1;
         }
 
-        return relf_header.e_entry;
-
-        
+        Ok(relf_header.e_entry)        
     }
 
 }
@@ -369,20 +370,21 @@ pub fn new( v: bool) -> Memory{
 
 #[test]
 fn loading() {
-    
-    let entry;
 
     let mut m: Memory = new(true);
-    entry = m.load_RELF("src/libs/testbins/parsing_more.s.relf");
-
-    assert_eq!(entry,0x00400000);
+    match m.load_RELF("src/libs/testbins/parsing_more.s.relf") {
+        Ok(ept) => assert_eq!(ept,0x00400000),
+        Err(eobj) => panic!("{eobj}")
+    }
     
     drop(m);
 
     let mut m: Memory = new(false);
-    let entry = m.load_RELF("src/libs/testbins/testingLS.s.relf");
-
-    assert_eq!(entry,0x00400000);
+    match m.load_RELF("src/libs/testbins/testingLS.s.relf") {
+        Ok(ept) => assert_eq!(ept,0x00400000),
+        Err(eobj) => panic!("{eobj}")
+    }
+    
 }
 
 #[test]

@@ -1,4 +1,5 @@
 #![feature(bigint_helper_methods)]
+#![feature(toowned_clone_into)]
 mod libs;
 use libs::Core;
 use std::panic;
@@ -38,7 +39,7 @@ fn main() {
                              .value_name("E")
                              .takes_value(true)
                             )
-                            
+
                     .get_matches();
 
     let v = matches.is_present("Verbose");
@@ -65,9 +66,9 @@ fn main() {
             } else {
                 entry = s.parse::<u32>().unwrap();
             }
-            
+
             cpu.load_bin(filepath,entry);
-            
+
         } else {
             panic!("A raw binary file was detected, but no entrypoint was given");
         }
