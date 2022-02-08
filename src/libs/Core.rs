@@ -214,6 +214,9 @@ impl Core {
                 if (self.flags & Arch::INTERR_FLAG) != 0 {
                     if self.verbose { println!("[CORE]: INTERR_FLAG set; Flags={:08x}",self.flags) }
                     self.set_flag(true, Arch::INTERR_FLAG);
+                    // This is a horrible hack
+                    // This is only needed here because the interrupt happens *after* pc has been incremented, instead of in every interrupt(like syscalls)
+                    self.PC -= 4;
                     self.interrupt();
                 }
             }
@@ -341,7 +344,7 @@ impl Core {
             if  !privileged { panic!("Tried to use privileged instruction 0x{:08x} but the mode bitflag was not set to 1; Flags=0x{:08x}",code, self.flags); }
 
             //restore PC
-            self.PC = self.EPC - 4; 
+            self.PC = self.EPC; 
             //disable privileged
             self.set_flag(false,Arch::MODE_FLAG);
             self.IntEnableOnNext = true;
