@@ -4,6 +4,8 @@ use super::Definitions::Utils;
 use super::Definitions::Stats;
 use super::Definitions::Arch;
 
+use super::Definitions::Errors::{ExecutionError, HeaderError};
+
 use super::Devices::MemoryMapped;
 use super::Devices::{Console,Keyboard,Interruptor};
 
@@ -72,13 +74,14 @@ impl Core {
      *
      *  path: Path to executable
     */
-    pub fn load_RELF(&mut self, path: &str) {
+    pub fn load_RELF(&mut self, path: &str) -> Result<(), HeaderError>{
 
         match self.mem.load_RELF(path) {
             Ok(pc) => self.PC = pc,
-            Err(eobj) => panic!("{eobj}")
+            Err(eobj) => return Err(eobj) //propagate
         }
 
+        Ok(())
     }
 
     /**
@@ -93,10 +96,10 @@ impl Core {
      *
      *  entry: PC to start execution
     */
-    pub fn load_bin(&mut self, path: &str, entry: u32) {
+    pub fn load_bin(&mut self, path: &str, entry: u32) -> Result<(), std::io::Error> {
 
         self.PC = entry;
-        self.mem.load_bin(path);
+        self.mem.load_bin(path)
 
     }
 
@@ -168,7 +171,7 @@ impl Core {
      *
      * Note: this is an infinite loop, please end your code segments via a syscall 10
     */
-    pub fn run(&mut self) {
+    pub fn run(&mut self) -> Result<(), ExecutionError> {
 
         let mut stat = Stats::new();
 
@@ -177,7 +180,7 @@ impl Core {
         loop {
             if self.verbose { println!("------------------"); }
 
-            self.run_handoff(self.PC);
+            self.run_handoff(self.PC)?;
             stat.cycle_incr();
             stat.instr_incr();
 
@@ -232,13 +235,14 @@ impl Core {
             println!("[CORE]: Finished execution in T={} s\n        CPI of {}. Executed {} instructions in {} cycles.",stat.exec_total_time().as_secs_f64(),stat.CPI(),stat.instr_count, stat.cycl_count);
         }
 
+        Ok(())
     }
 
     #[inline(always)]
-    fn run_handoff(&mut self, PC: u32) {
+    fn run_handoff(&mut self, PC: u32) -> Result<(), ExecutionError> {
 
         //avoid weird tuples in vec::align_to, we know it'll always be aligned
-        let code: Word = Utils::from_word(self.mem.load(PC,4));
+        let code: Word = Utils::from_word(self.mem.load(PC,4)?);
 
 
         if self.verbose {
@@ -248,23 +252,25 @@ impl Core {
         let maskOP = (code & 0xfc000000) >> 26;
         if maskOP == 0 {
             //is an R-type instruction
-            self.handoff_R(code);
+            self.handoff_R(code)?;
 
         } else if ! (maskOP == 0b000010 || maskOP == 0b000011 || maskOP == 0b011010) {
             // is an I-type instruction
-            self.handoff_I(code);
+            self.handoff_I(code)?;
         } else {
             // is a J-type instruction
-            self.handoff_J(code);
+            self.handoff_J(code)?;
         }
+
+        Ok(())
     }
 
 
-    fn handoff_R(&mut self,code: Word) {
+    fn handoff_R(&mut self,code: Word) -> Result<(), ExecutionError> {
 
         if code == 0x00000000 {
             if self.verbose { println!("\tR-type: NOP"); }
-            return;
+            return Ok(());
         }
 
         let rs   = self.reg[((code & 0b00000011111000000000000000000000) >> 21) as usize];
@@ -320,17 +326,19 @@ impl Core {
             0b010011 => {self.LO = rs;},//mtlo
 
 
-            _ => {panic!("Unrecognized R type func {:x}",func);}
+            _ => { return Err(ExecutionError::UnrecognizedOPError(String::from(format!("Unrecognized R type func {:x}",func)))) ;}
 
         }
 
         self.set_flag(res == 0, Arch::Z_FLAG);
         self.set_flag((res as i32) < 0, Arch::S_FLAG);
 
+        Ok(())
+
     }
 
 
-    fn handoff_I(&mut self, code: Word) {
+    fn handoff_I(&mut self, code: Word) -> Result<(), ExecutionError> {
 
         //special instruction: RFE
         if code == 0x42000001 {
@@ -341,7 +349,10 @@ impl Core {
             if self.verbose { println!("\tRFE:EPC={:08x}; privilege status {}. Flags {:08x}",self.EPC, privileged,self.flags); }
 
             //panic if we are not privileged
-            if  !privileged { panic!("Tried to use privileged instruction 0x{:08x} but the mode bitflag was not set to 1; Flags=0x{:08x}",code, self.flags); }
+            if  !privileged { 
+                return Err(ExecutionError::PrivilegeError(String::from("RFE")));
+                //panic!("Tried to use privileged instruction 0x{:08x} but the mode bitflag was not set to 1; Flags=0x{:08x}",code, self.flags); 
+            }
 
             //restore PC
             self.PC = self.EPC; 
@@ -354,7 +365,7 @@ impl Core {
 
             self.mem.set_privileged(false);
 
-            return;
+            return Ok(());
 
         }
 
@@ -366,7 +377,10 @@ impl Core {
             if self.verbose { println!("\tHLT: privilege status: {};",privileged ); }
 
             //panic if we are not privileged
-            if  !privileged { panic!("Tried to use privileged instruction 0x{:08x} but the mode bitflag was not set to 1; Flags=0x{:08x}",code, self.flags); }
+            if  !privileged { 
+                return Err(ExecutionError::PrivilegeError(String::from("HLT")));
+                //panic!("Tried to use privileged instruction 0x{:08x} but the mode bitflag was not set to 1; Flags=0x{:08x}",code, self.flags); 
+            }
 
             //set fin flag, disable privileged
             self.set_flag(false, Arch::MODE_FLAG);
@@ -374,7 +388,7 @@ impl Core {
 
             self.set_flag(true, Arch::FIN_FLAG);
 
-            return;
+            return Ok(());
 
         }
 
@@ -407,41 +421,42 @@ impl Core {
             0b000101 => { if rs != self.reg[rt] { if imm_sign_positive { self.PC = self.PC.overflowing_add(imm << 2).0;} else { self.PC = self.PC.overflowing_sub(to_signed!(imm<<2, u16)).0 }}; }//bne
             0b000111 => { if rs > 0             { if imm_sign_positive { self.PC = self.PC.overflowing_add(imm << 2).0;} else { self.PC = self.PC.overflowing_sub(to_signed!(imm<<2, u16)).0 }}; }//bgtz
             0b000110 => { if rs <= self.reg[rt] { if imm_sign_positive { self.PC = self.PC.overflowing_add(imm << 2).0;} else { self.PC = self.PC.overflowing_sub(to_signed!(imm<<2, u16)).0 }}; }//blez
-            0b100000 => {self.reg[rt] = Utils::from_byte(self.mem.load(rs+imm, 1) );}//lb
-            0b100100 => {self.reg[rt] = Utils::from_byte(self.mem.load(rs+imm, 1) );}//lbu
-            0b100001 => {self.reg[rt] = Utils::from_half(self.mem.load(rs+imm, 2) );}//lh
-            0b100101 => {self.reg[rt] = Utils::from_half(self.mem.load(rs+imm, 2) );}//lhu
-            0b100011 => {self.reg[rt] = Utils::from_word(self.mem.load(rs+imm, 4) );}//lw
+            0b100000 => {self.reg[rt] = Utils::from_byte(self.mem.load(rs+imm, 1)? );}//lb
+            0b100100 => {self.reg[rt] = Utils::from_byte(self.mem.load(rs+imm, 1)? );}//lbu
+            0b100001 => {self.reg[rt] = Utils::from_half(self.mem.load(rs+imm, 2)? );}//lh
+            0b100101 => {self.reg[rt] = Utils::from_half(self.mem.load(rs+imm, 2)? );}//lhu
+            0b100011 => {self.reg[rt] = Utils::from_word(self.mem.load(rs+imm, 4)? );}//lw
             0b101000 => {
                 let b = self.reg[rt];
                 let v = vec![b as u8;1];
 
-                self.mem.store( (rs+imm) as usize , 1, &v);
+                self.mem.store( (rs+imm) as usize , 1, &v)?;
             }//sb
             0b101001 => {
                 let b = self.reg[rt];
                 let v = vec![(b >> 8) as u8, (b & 0x00ff) as u8];
 
-                self.mem.store( (rs+imm) as usize, 2, &v);
+                self.mem.store( (rs+imm) as usize, 2, &v)?;
             }//sh
             0b101011 => {
                 let b = self.reg[rt];
                 let v = vec![(b & 0xff000000 >> 24) as u8, (b & 0x00ff0000 >> 16) as u8,(b & 0x0000ff00 >> 8) as u8, (b & 0x000000ff) as u8];
 
-                self.mem.store( (rs +imm) as usize, 4, &v);
+                self.mem.store( (rs +imm) as usize, 4, &v)?;
             }//sw
 
 
-            _ => { panic!("Unrecognized I type func {:x}",func) }
-
+            _ => { return Err(ExecutionError::UnrecognizedOPError(String::from(format!("Unrecognized I type func {:x}",func)))) }
 
 
         }
 
+        Ok(())
+
     }
 
 
-    fn handoff_J(&mut self,code: Word) {
+    fn handoff_J(&mut self,code: Word) -> Result<(), ExecutionError> {
 
         //special instruction, syscall
         if code == 0x68000000 {
@@ -450,7 +465,7 @@ impl Core {
 
             //save current pc, jump to IrqH, set privileged flag
             self.interrupt();
-            return;
+            return Ok(());
         }
 
         let func          = (code & 0xfc000000) >> 26;
@@ -462,10 +477,10 @@ impl Core {
             0b000010 => {self.PC = if jump_target != 0 {jump_target-4} else {jump_target};}
             0b000011 => {self.reg[31] = self.PC; self.PC = if jump_target != 0 {jump_target-4} else {jump_target};}
 
-            _ => { panic!("Unrecognized J type func {:02x}",func); }
+            _ => { return Err(ExecutionError::UnrecognizedOPError(String::from(format!("Unrecognized J type func {:02x}",func)))); }
         }
 
-
+        Ok(())
     }
 
 
@@ -482,7 +497,7 @@ fn basic() {
     let mut c: Core = new(true);
 
     c.load_RELF("src/libs/testbins/testingLS.s.relf");
-    c.run();
+    c.run().unwrap();
 }
 
 #[test]
@@ -496,11 +511,11 @@ fn backwards_jumps() {
     c.mem.set_privileged(true);
     c.set_flag(true, Arch::MODE_FLAG);
 
-    c.mem.store(start, 4, &hlt);
-    c.mem.store(start + 4, 4, &backj);
+    c.mem.store(start, 4, &hlt).unwrap();
+    c.mem.store(start + 4, 4, &backj).unwrap();
     c.PC = start as u32;
 
-    c.run();
+    c.run().unwrap();
 }
 
 #[test]
@@ -509,7 +524,7 @@ fn long_compute() {
     let mut c: Core = new(true);
 
     c.load_RELF("src/libs/testbins/perf_test.s.relf");
-    c.run();
+    c.run().unwrap();
 }
 
 
@@ -519,10 +534,10 @@ fn unprivileged_rfe() {
     let mut c: Core = new(true);
 
     let code = [0x42, 0x00, 0x00, 0x01]; //rfe
-    c.mem.store(0x00fff, 4, &code);
+    c.mem.store(0x00fff, 4, &code).unwrap();
     c.PC = 0x00fff;
 
-    c.run();
+    c.run().unwrap();
 }
 
 #[test]
@@ -531,10 +546,10 @@ fn unprivileged_hlt() {
     let mut c: Core = new(true);
 
     let code = [0x42, 0x00, 0x00, 0x10]; //hlt
-    c.mem.store(0x00fff, 4, &code);
+    c.mem.store(0x00fff, 4, &code).unwrap();
     c.PC = 0x00fff;
 
-    c.run();
+    c.run().unwrap();
 
 }
 
@@ -542,9 +557,9 @@ fn unprivileged_hlt() {
 fn default_irqH() {
     let mut c: Core = new(true);
 
-    c.mem.store(0x00f8, 4, &[0x20, 0x02, 0x00, 0x0A]); //li $v0, 10
-    c.mem.store(0x00fc, 4, &[0x68,0x00,0x00,0x00]); //syscall
+    c.mem.store(0x00f8, 4, &[0x20, 0x02, 0x00, 0x0A]).unwrap(); //li $v0, 10
+    c.mem.store(0x00fc, 4, &[0x68,0x00,0x00,0x00]).unwrap(); //syscall
     c.PC = 0x00f8;
 
-    c.run();
+    c.run().unwrap();
 }

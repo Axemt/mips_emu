@@ -1,5 +1,6 @@
 use super::super::Definitions::Utils::from_sizeN;
 use super::MemoryMapped;
+use super::super::Definitions::Errors::MemError;
 
 #[derive(Copy, Clone)]
 
@@ -10,14 +11,11 @@ pub struct Console {
 }
 
 impl MemoryMapped for Console {
-    fn read(&mut self, dir: u32, _size: usize) -> &[u8] {
-        panic!(
-            "Tried to read from non-readable device 'Console' at address {:08x}",
-            dir
-        );
+    fn read(&mut self, dir: u32, _size: usize) -> Result<&[u8], MemError> {
+        Err(MemError::MappedDeviceError(String::from(format!("Tried to read from non-readable device 'Console' at address {:08x}",dir))))
     }
 
-    fn write(&mut self, dir: usize, size: usize, contents: &[u8]) {
+    fn write(&mut self, dir: usize, size: usize, contents: &[u8]) -> Result<(), MemError> {
         //if writing to lower address, print
         if dir + size - 1 <= self.range_lower as usize + 3 {
             match self.mode {
@@ -37,7 +35,7 @@ impl MemoryMapped for Console {
                     println!()
                 } //print string
                 _ => {
-                    panic!("Console: Unknown print mode {}", self.mode);
+                    return Err(MemError::MappedDeviceError(String::from(format!("Console: Unknown print mode {}", self.mode))))
                 }
             }
         }
@@ -45,6 +43,8 @@ impl MemoryMapped for Console {
         else {
             self.mode = contents[0];
         }
+
+        Ok(())
     }
 }
 
@@ -78,18 +78,18 @@ fn write_modes_C() {
     let mut c: Console = new();
 
     //set mode to 3, string
-    c.write(0x80000004, 1, &[3]);
-    c.write(0x80000000, 4, b"abcd");
+    c.write(0x80000004, 1, &[3]).unwrap();
+    c.write(0x80000000, 4, b"abcd").unwrap();
 
     //set mode to 1, float
-    c.write(0x80000004, 1, &[1]);
+    c.write(0x80000004, 1, &[1]).unwrap();
     let x: f32 = 12.34;
-    c.write(0x80000000, 4, &x.to_be_bytes());
+    c.write(0x80000000, 4, &x.to_be_bytes()).unwrap();
 
     //set mode to double
-    c.write(0x80000004, 1, &[2]);
+    c.write(0x80000004, 1, &[2]).unwrap();
     let y: f64 = 3.1415926535;
-    c.write(0x80000000, 4, &y.to_be_bytes());
+    c.write(0x80000000, 4, &y.to_be_bytes()).unwrap();
 }
 
 #[test]
@@ -97,5 +97,5 @@ fn write_modes_C() {
 fn read_C() {
     let mut c: Console = new();
 
-    c.read(0, 4);
+    c.read(0, 4).unwrap();
 }

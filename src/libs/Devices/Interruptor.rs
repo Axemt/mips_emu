@@ -76,7 +76,9 @@ fn triggers() {
 
     new_default("TEST", Duration::new(0, 2), &send, true);
 
+    thread::sleep_ms(1000);
     assert_eq!(recv.recv().unwrap(), 1);
+    thread::sleep_ms(200);
     assert_eq!(recv.recv().unwrap(), 1);
 
 }

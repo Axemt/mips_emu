@@ -32,10 +32,7 @@ pub fn from_sizeN<const N: usize>(contents: &[u8]) -> [u8; N] {
 
     let mut tmpVec = contents.to_vec();
     tmpVec.resize(N,0);
-    let res = tmpVec.try_into().unwrap();
-
-    return res;
-
+    tmpVec.try_into().unwrap()
 }
 
 /**

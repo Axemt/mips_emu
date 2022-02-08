@@ -1,5 +1,5 @@
 use super::Definitions::RELFHeaders::{RelfHeader32,SectionHeader32};
-use super::Definitions::Errors::HeaderError;
+use super::Definitions::Errors::{HeaderError, MemError};
 use super::Definitions::Utils::{Byte, Half, Word};
 use super::Devices::MemoryMapped;
 
@@ -126,7 +126,7 @@ pub fn new( v: bool) -> Memory{
      * 
      *  pointer to slice
     */
-    pub fn load(& mut self,dir: u32 , size: usize) -> &[Byte] {
+    pub fn load(& mut self,dir: u32 , size: usize) -> Result<&[Byte], MemError> {
 
         let contents: &[u8];
 
@@ -135,7 +135,9 @@ pub fn new( v: bool) -> Memory{
             let prot_lo = elem.0;
             let prot_high = elem.1;
 
-            if dir < prot_high && dir >= prot_lo && !self.mode_privilege { panic!("Tried to access protected region range [0x{:08x}..0x{:08x}] at address 0x{:08x}",prot_lo, prot_high,dir); }
+            if dir < prot_high && dir >= prot_lo && !self.mode_privilege { 
+                return Err(MemError::PermError(String::from(format!("Tried to access protected region range [0x{:08x}..0x{:08x}] at address 0x{:08x}",prot_lo, prot_high,dir) ) ) ) 
+            }
 
         }   
 
@@ -156,8 +158,8 @@ pub fn new( v: bool) -> Memory{
 
                 if self.verbose { println!("[MEM]: Read access to Memory Mapped Device at address 0x{:08x}; Handing off...", dir); }
 
-                contents =  elem.2.read(dir, size) ;
-                return contents;
+                contents =  elem.2.read(dir, size)? ;
+                return Ok(contents);
             }
 
         }
@@ -167,8 +169,8 @@ pub fn new( v: bool) -> Memory{
 
         if self.verbose { println!("[MEM]: loading: align={} dir={:08x?} contents={:x?}",size,dir,contents); }
 
-        return contents;
-
+        
+        Ok(contents)
     }
 
     /**
@@ -182,7 +184,7 @@ pub fn new( v: bool) -> Memory{
      * 
      *  contents: bytes to store
     */
-    pub fn store(& mut self, dir: usize ,size: usize, contents: & [Byte]) {
+    pub fn store(& mut self, dir: usize ,size: usize, contents: & [Byte]) -> Result<(), MemError> {
 
         let d = dir as u32;
 
@@ -192,7 +194,9 @@ pub fn new( v: bool) -> Memory{
             let prot_lo = elem.0;
             let prot_high = elem.1;
 
-            if d < prot_high && d >= prot_lo && self.mode_privilege == false { panic!("Tried to access protected region range [0x{:08x}..0x{:08x}] at address 0x{:08x}",prot_lo, prot_high,dir); }
+            if d < prot_high && d >= prot_lo && self.mode_privilege == false {
+                return Err(MemError::PermError(String::from(format!("Tried to access protected region range [0x{:08x}..0x{:08x}] at address 0x{:08x}",prot_lo, prot_high,dir) ) ) );
+            }
 
         }
         
@@ -207,9 +211,9 @@ pub fn new( v: bool) -> Memory{
 
                 if self.verbose { println!("[MEM]: Write access to Memory Mapped Device at address 0x{:08x} with contents {:?}; Handing off...", dir,contents); }
 
-                elem.2.write(dir, size, contents);
+                elem.2.write(dir, size, contents)?;
 
-                return;
+                return Ok(());
             }
         }
 
@@ -232,6 +236,8 @@ pub fn new( v: bool) -> Memory{
             byte += 1;
 
         }
+
+        Ok(())
 
     }
 
@@ -393,10 +399,10 @@ fn load_store() {
 
     //store as word...
     //also implicitly extends mem dynamically
-    m.store(0x00020000, 4, &[0,1]);
+    m.store(0x00020000, 4, &[0,1]).unwrap();
 
     //..but retrieve as half
-    let got = m.load(0x00020000, 2);
+    let got = m.load(0x00020000, 2).unwrap();
 
     assert_eq!([0,1],got);
 }
@@ -430,14 +436,14 @@ fn unprivileged_protected_access() {
     m.protect(0,0x0000fC00);
 
     //correct access
-    let got = m.load(0x0000fd00, 4);
+    let got = m.load(0x0000fd00, 4).unwrap();
 
 
     //access to protected -> panic
     let mut m2: Memory = new(true);
     m2.extend_mem_FAST(0x0000ff00);
     m2.protect(0,0x0000fC00);
-    m2.store(0x0000AA00, 4, got);
+    m2.store(0x0000AA00, 4, got).unwrap();
 }
 
 #[test]
@@ -450,7 +456,7 @@ fn privileged_protected_access() {
        m.set_privileged(true);
        
        //correct access   
-       m.store(0x0000AA00, 4, &[0x69, 0x69, 0x69, 0x66]);
+       m.store(0x0000AA00, 4, &[0x69, 0x69, 0x69, 0x66]).unwrap();
        let _ = m.load(0x0000AA00, 4); 
     
 }
@@ -467,9 +473,9 @@ fn device_access() {
     m.map_device(k.range_lower, k.range_upper, k);
 
     //write to Console
-    m.store(0x80000000, 4, b"abcd");
+    m.store(0x80000000, 4, b"abcd").unwrap();
 
     //store (mode) from Keyboard
-    m.store(0x8000000c, 1, &[1]);
+    m.store(0x8000000c, 1, &[1]).unwrap();
 
 }

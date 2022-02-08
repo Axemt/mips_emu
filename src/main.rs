@@ -50,7 +50,10 @@ fn main() {
 
     if filepath.ends_with(".relf") {
 
-        cpu.load_RELF(filepath);
+        match cpu.load_RELF(filepath) {
+            Err(eobj) => { panic!("{eobj}") }
+            _ => {}
+        }
 
     } else { //raw .bin file
 
@@ -67,7 +70,10 @@ fn main() {
                 entry = s.parse::<u32>().unwrap();
             }
 
-            cpu.load_bin(filepath,entry);
+            match cpu.load_bin(filepath,entry) {
+                Err(eobj) => { panic!("{eobj}") }
+                _ => {}
+            }
 
         } else {
             panic!("A raw binary file was detected, but no entrypoint was given");
@@ -75,6 +81,9 @@ fn main() {
 
     }
 
-    cpu.run();
+    match cpu.run() {
+        Err(eobj) => { panic!("EXECUTION FAILED: {eobj}") }
+        _ => {}
+    }
 
 }

@@ -2,6 +2,7 @@ use super::MemoryMapped;
 use std::io;
 use std::io::Read;
 use super::super::Definitions::Utils::from_sizeN;
+use super::super::Definitions::Errors::MemError;
 
 pub struct Keyboard {
     pub range_lower: u32,
@@ -12,7 +13,7 @@ pub struct Keyboard {
 
 impl MemoryMapped for Keyboard {
 
-    fn read(&mut self, dir: u32, size: usize) -> & [u8] {
+    fn read(&mut self, dir: u32, size: usize) -> Result<&[u8], MemError> {
 
         self.buffer.clear();
 
@@ -25,21 +26,21 @@ impl MemoryMapped for Keyboard {
 
         } else {
 
-            panic!("Tried to read from non-readable address 0x{:08x} in device 'Keyboard'", dir);
+            return Err(MemError::MappedDeviceError(String::from(format!("Tried to read from non-readable address 0x{:08x} in device 'Keyboard'", dir))));
 
         }
 
-        &self.buffer[..size]
+        Ok(&self.buffer[..size])
 
         
 
     }
 
-    fn write(&mut self, dir: usize, size: usize, contents: &[u8]) -> () {
+    fn write(&mut self, dir: usize, size: usize, contents: &[u8]) -> Result<(), MemError> {
         
-        if (dir as u32 == self.range_lower+4) && (dir as u32 + size as u32) < self.range_upper { self.mode = contents[0]; return }
+        if (dir as u32 == self.range_lower+4) && (dir as u32 + size as u32) < self.range_upper { self.mode = contents[0]; return Ok(()) }
         
-        panic!("Tried to write to non-writeable address 0x{:08x} in device 'Keyboard'",dir); 
+        Err(MemError::MappedDeviceError(String::from(format!("Tried to write to non-writeable address 0x{:08x} in device 'Keyboard'",dir)))) 
     }
     
 }
@@ -71,7 +72,7 @@ fn integrity() {
 fn write_mode_K() {
     let mut k: Keyboard = new();
 
-    k.write( (k.range_lower+4) as usize, 1, &[0;4]);
+    k.write( (k.range_lower+4) as usize, 1, &[0;4]).unwrap();
 }
 
 #[test]
@@ -79,6 +80,5 @@ fn write_mode_K() {
 fn read_mode_K() {
     let mut k: Keyboard = new();
 
-    k.write(0x80000008, 4, &[0]);
-    k.read(0x80000008, 1);
+    k.write(0x80000008, 4, &[0]).unwrap();
 }
