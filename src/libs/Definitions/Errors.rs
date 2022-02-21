@@ -1,3 +1,5 @@
+#[allow(dead_code)]
+
 #[derive(Debug)]
 pub enum HeaderError {
     MagicError,
@@ -20,7 +22,7 @@ impl std::fmt::Display for HeaderError {
 
 impl From<std::io::Error> for HeaderError {
        fn from(e: std::io::Error) -> Self {
-         HeaderError::IOError(String::from("Propagated io::Error: {e.to_string()}"))
+         HeaderError::IOError(format!("Propagated io::Error: {}", e.to_string()))
        }
      }
 
@@ -53,7 +55,7 @@ pub enum ExecutionError {
 
 impl From<MemError> for ExecutionError {
   fn from(e: MemError) -> Self {
-    ExecutionError::MemError(String::from("Propagated MemError: {e.to_string()}"))
+    ExecutionError::MemError(format!("Propagated MemError: {}", e.to_string()))
   }
 }
 
@@ -68,3 +70,26 @@ impl std::fmt::Display for ExecutionError {
 }
 
 impl std::error::Error for ExecutionError {}
+
+#[test]
+fn error_fmt() {
+  println!("{}",HeaderError::MagicError);
+  println!("{}",HeaderError::ArchError);
+  println!("{}",HeaderError::PermExecError(String::from("")));
+  println!("{}",HeaderError::IOError(String::from("")));
+
+  println!("{}", MemError::MappedDeviceError(String::from("")));
+  println!("{}", MemError::PermError(String::from("")));
+
+  println!("{}",ExecutionError::MemError(String::from("")));
+  println!("{}",ExecutionError::PrivilegeError(String::from("")));
+  println!("{}",ExecutionError::UnrecognizedOPError(String::from("")));
+}
+
+#[test]
+fn error_from() {
+  #[allow(unused_variables)]
+  let e: HeaderError = std::io::Error::new(std::io::ErrorKind::Other, "error!").into();
+  #[allow(unused_variables)]
+  let e2: ExecutionError = MemError::PermError(String::from("")).into();
+}

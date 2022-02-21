@@ -3,6 +3,7 @@ use super::Definitions::Utils::{Byte, Half, Word};
 use super::Definitions::Utils;
 use super::Definitions::Stats;
 use super::Definitions::Arch;
+use super::Definitions::Arch::OP;
 
 use super::Definitions::Errors::{ExecutionError, HeaderError};
 
@@ -12,7 +13,6 @@ use super::Devices::{Console,Keyboard,Interruptor};
 use crate::to_signed;
 use crate::to_signed_cond;
 
-use std::panic;
 use std::time::Duration;
 use std::sync::mpsc;
 
@@ -43,7 +43,7 @@ pub fn new(v: bool) -> Core {
     let irq_addr: u32 = 0x0;
 
     if v { println!("[CORE]: Setting up default IRQH with address 0x{:08x}",irq_addr) }
-    mem.store(irq_addr as usize, DEFAULT_irq.len(),&DEFAULT_irq);
+    mem.store(irq_addr as usize, DEFAULT_irq.len(),&DEFAULT_irq).unwrap();
     mem.protect(irq_addr,DEFAULT_irq.len() as u32 + 4);
     mem.set_privileged(false);
 
@@ -151,6 +151,7 @@ impl Core {
      *  proct_high: Highest address of the reserved range
      *
      */
+    #[allow(dead_code)]
     pub fn protect_mem(&mut self, proct_low: u32, proct_high: u32) {
         self.mem.protect(proct_low,proct_high);
     }
@@ -162,6 +163,7 @@ impl Core {
      *
      * irqpc: The address to jump to on interrupt
      */
+    #[allow(dead_code)]
     pub fn set_IrqHPC(&mut self, irq_pc: u32) {
         self.irq_handler_addr = irq_pc
     }
@@ -268,7 +270,7 @@ impl Core {
 
     fn handoff_R(&mut self,code: Word) -> Result<(), ExecutionError> {
 
-        if code == 0x00000000 {
+        if code == OP::NOP {
             if self.verbose { println!("\tR-type: NOP"); }
             return Ok(());
         }
@@ -289,44 +291,44 @@ impl Core {
         //non-zero value for flag check after
         let mut res = 1;
         match func {
-            0b100000 => {res = if rt_sign_positive { rs.overflowing_add(rt).0 } else { rs.overflowing_sub(rt).0 }; self.reg[rd] = res},   //add
-            0b100001 => {res = rs.overflowing_add(rt).0; self.reg[rd] = res;},   //addu
-            0b100100 => {res = rs & rt; self.reg[rd] = res;},   //and
-            0b100111 => {res = !(rs | rt); self.reg[rd] = res;},//nor
-            0b100101 => {res = rs | rt; self.reg[rd] = res;},   //or
-            0b100010 => {res = rs.overflowing_sub(rt).0; self.reg[rd] = res;} ,  //sub
-            0b100011 => {res = rs.overflowing_sub(rt).0; self.reg[rd] = res;},   //subu
-            0b100110 => {res = rs ^ rt; self.reg[rd] = res;},   //xor
-            0b101010 => { if to_signed_cond!(rs, rs_sign_positive, u32) < to_signed_cond!(rt, rt_sign_positive, u32) {self.reg[rd] = 1} else {self.reg[rd] = 0} },  //slt FLAGS NOT IMPLEMENTED!
-            0b101001 => { if rs < rt {res = 1} else {res = 0}; self.reg[rd] = res;}, //sltu
-            0b011010 => {self.LO = rs / rt; self.HI = rs % rt;},          //div
-            0b011011 => {self.LO = rs.saturating_div(rt); self.HI = rs % rt;}, //divu
-            0b011000 => {
+            OP::R::ADD  => {res = if rt_sign_positive { rs.overflowing_add(rt).0 } else { rs.overflowing_sub(rt).0 }; self.reg[rd] = res},   //add
+            OP::R::ADDU => {res = rs.overflowing_add(rt).0; self.reg[rd] = res;},   //addu
+            OP::R::AND  => {res = rs & rt; self.reg[rd] = res;},   //and
+            OP::R::NOR  => {res = !(rs | rt); self.reg[rd] = res;},//nor
+            OP::R::OR   => {res = rs | rt; self.reg[rd] = res;},   //or
+            OP::R::SUB  => {res = rs.overflowing_sub(rt).0; self.reg[rd] = res;} ,  //sub
+            OP::R::SUBU => {res = rs.overflowing_sub(rt).0; self.reg[rd] = res;},   //subu
+            OP::R::XOR  => {res = rs ^ rt; self.reg[rd] = res;},   //xor
+            OP::R::SLT  => { if to_signed_cond!(rs, rs_sign_positive, u32) < to_signed_cond!(rt, rt_sign_positive, u32) {self.reg[rd] = 1} else {self.reg[rd] = 0} },  //slt FLAGS NOT IMPLEMENTED!
+            OP::R::SLTU => { if rs < rt {res = 1} else {res = 0}; self.reg[rd] = res;}, //sltu
+            OP::R::DIV  => {self.LO = rs / rt; self.HI = rs % rt;},          //div
+            OP::R::DIVU => {self.LO = rs.saturating_div(rt); self.HI = rs % rt;}, //divu
+            OP::R::MULT => {
                 //destructuring assignments are unstable
                 let m_tupl = (to_signed_cond!(rs, rs_sign_positive, u32)).widening_mul(to_signed_cond!(rt, rt_sign_positive, u32));
 
                 self.HI = m_tupl.0;
                 self.LO = m_tupl.1;
             },//mult
-            0b011001 => {
+            OP::R::MULTU => {
                 let m_tupl = rs.widening_mul(rt);
 
                 self.HI = m_tupl.0;
                 self.LO = m_tupl.1 ;
             },//multu
-            0b000000 => {res = rt << sham; self.reg[rd] = res;},//sll
-            0b000011 => {res = (rt as i32 >> sham as i32) as u32; self.reg[rd] = res;},//sra ; for rust to do shift aritmetic, use signed types
-            0b000111 => {res = (rt as i32 >> rs as i32) as u32; self.reg[rd] = res;},   //srav; for rust to do shift aritmetic, use signed types
-            0b000110 => {res = rt >> rs; self.reg[rd] = res;},//srlv
-            0b001001 => {self.reg[31] = self.PC; self.PC = if rs != 0 {rs-4} else {rs};},//jalr
-            0b001000 => {self.PC = if rs != 0 {rs-4} else {rs}},//jr
-            0b010000 => {self.reg[rd] = self.HI;},//mfhi
-            0b010010 => {self.reg[rd] = self.LO;},//mflo
-            0b010001 => {self.HI = rs;},//mthi
-            0b010011 => {self.LO = rs;},//mtlo
+            OP::R::SLL  => {res = rt << sham; self.reg[rd] = res;},//sll
+            OP::R::SRA  => {res = (rt as i32 >> sham as i32) as u32; self.reg[rd] = res;},//sra ; for rust to do shift aritmetic, use signed types
+            OP::R::SRAV => {res = (rt as i32 >> rs as i32) as u32; self.reg[rd] = res;},   //srav; for rust to do shift aritmetic, use signed types
+            OP::R::SRLV => {res = rt >> rs; self.reg[rd] = res;},//srlv
+            OP::R::JARL => {self.reg[31] = self.PC; self.PC = if rs != 0 {rs-4} else {rs};},//jalr
+            OP::R::JR   => {self.PC = if rs != 0 {rs-4} else {rs}},//jr
+            OP::R::MFHI => {self.reg[rd] = self.HI;},//mfhi
+            OP::R::MFLO => {self.reg[rd] = self.LO;},//mflo
+            OP::R::MTHI => {self.HI = rs;},//mthi
+            OP::R::MTLO => {self.LO = rs;},//mtlo
 
 
-            _ => { return Err(ExecutionError::UnrecognizedOPError(String::from(format!("Unrecognized R type func {:x}",func)))) ;}
+            _ => { return Err(ExecutionError::UnrecognizedOPError(format!("Unrecognized R type func {:x}",func))) ;}
 
         }
 
@@ -341,7 +343,7 @@ impl Core {
     fn handoff_I(&mut self, code: Word) -> Result<(), ExecutionError> {
 
         //special instruction: RFE
-        if code == 0x42000001 {
+        if code == OP::RFE {
 
             let privileged = (self.flags & Arch::MODE_FLAG) != 0;
 
@@ -370,7 +372,7 @@ impl Core {
         }
 
         //special instruction: hlt
-        if code == 0x42000010 {
+        if code == OP::HLT {
 
             let privileged = (self.flags & Arch::MODE_FLAG) != 0;
 
@@ -405,40 +407,40 @@ impl Core {
         }
 
         match func {
-            0b001000 => {
+            OP::I::ADDI  => {
                 //using signed, if number is negative subtract
                 self.reg[rt] = if imm_sign_positive { rs.overflowing_add(imm).0 } else { rs.overflowing_sub(imm).0 };
             },//addi
-            0b001001 => {self.reg[rt] = rs.overflowing_add(imm).0;}//addiu
-            0b001100 => {self.reg[rt] = rs & imm;}//andi
-            0b001101 => {self.reg[rt] = rs | imm;}//ori
-            0b001110 => {self.reg[rt] = rs ^ imm;}//xori
-            0b001010 => {if rs < imm { self.reg[rt] = 1;} else { self.reg[rt] = 0;} } //slti
-            0b001011 => {if rs < imm { self.reg[rt] = 1;} else { self.reg[rt] = 0;} }//sltiu
-            0b011001 => {println!("lhi");}//lhi
-            0b011000 => {println!("llo");}//llo
-            0b000100 => { if rs == self.reg[rt] { if imm_sign_positive { self.PC = self.PC.overflowing_add(imm << 2).0;} else { self.PC = self.PC.overflowing_sub(to_signed!(imm<<2, u16)).0 }}; }//beq
-            0b000101 => { if rs != self.reg[rt] { if imm_sign_positive { self.PC = self.PC.overflowing_add(imm << 2).0;} else { self.PC = self.PC.overflowing_sub(to_signed!(imm<<2, u16)).0 }}; }//bne
-            0b000111 => { if rs > 0             { if imm_sign_positive { self.PC = self.PC.overflowing_add(imm << 2).0;} else { self.PC = self.PC.overflowing_sub(to_signed!(imm<<2, u16)).0 }}; }//bgtz
-            0b000110 => { if rs <= self.reg[rt] { if imm_sign_positive { self.PC = self.PC.overflowing_add(imm << 2).0;} else { self.PC = self.PC.overflowing_sub(to_signed!(imm<<2, u16)).0 }}; }//blez
-            0b100000 => {self.reg[rt] = Utils::from_byte(self.mem.load(rs+imm, 1)? );}//lb
-            0b100100 => {self.reg[rt] = Utils::from_byte(self.mem.load(rs+imm, 1)? );}//lbu
-            0b100001 => {self.reg[rt] = Utils::from_half(self.mem.load(rs+imm, 2)? );}//lh
-            0b100101 => {self.reg[rt] = Utils::from_half(self.mem.load(rs+imm, 2)? );}//lhu
-            0b100011 => {self.reg[rt] = Utils::from_word(self.mem.load(rs+imm, 4)? );}//lw
-            0b101000 => {
+            OP::I::ADDIU => {self.reg[rt] = rs.overflowing_add(imm).0;}//addiu
+            OP::I::ANDI  => {self.reg[rt] = rs & imm;}//andi
+            OP::I::ORI   => {self.reg[rt] = rs | imm;}//ori
+            OP::I::XORI  => {self.reg[rt] = rs ^ imm;}//xori
+            OP::I::SLTI  => {if rs < imm { self.reg[rt] = 1;} else { self.reg[rt] = 0;} } //slti
+            OP::I::SLTIU => {if rs < imm { self.reg[rt] = 1;} else { self.reg[rt] = 0;} }//sltiu
+            OP::I::LHI   => {println!("lhi");}//lhi
+            OP::I::LLO   => {println!("llo");}//llo
+            OP::I::BEQ   => { if rs == self.reg[rt] { if imm_sign_positive { self.PC = self.PC.overflowing_add(imm << 2).0;} else { self.PC = self.PC.overflowing_sub(to_signed!(imm<<2, u16)).0 }}; }//beq
+            OP::I::BNE   => { if rs != self.reg[rt] { if imm_sign_positive { self.PC = self.PC.overflowing_add(imm << 2).0;} else { self.PC = self.PC.overflowing_sub(to_signed!(imm<<2, u16)).0 }}; }//bne
+            OP::I::BGTZ  => { if rs > 0             { if imm_sign_positive { self.PC = self.PC.overflowing_add(imm << 2).0;} else { self.PC = self.PC.overflowing_sub(to_signed!(imm<<2, u16)).0 }}; }//bgtz
+            OP::I::BLEZ  => { if rs <= self.reg[rt] { if imm_sign_positive { self.PC = self.PC.overflowing_add(imm << 2).0;} else { self.PC = self.PC.overflowing_sub(to_signed!(imm<<2, u16)).0 }}; }//blez
+            OP::I::LB    => {self.reg[rt] = Utils::from_byte(self.mem.load(rs+imm, 1)? );}//lb
+            OP::I::LBU   => {self.reg[rt] = Utils::from_byte(self.mem.load(rs+imm, 1)? );}//lbu
+            OP::I::LH    => {self.reg[rt] = Utils::from_half(self.mem.load(rs+imm, 2)? );}//lh
+            OP::I::LHU   => {self.reg[rt] = Utils::from_half(self.mem.load(rs+imm, 2)? );}//lhu
+            OP::I::LW    => {self.reg[rt] = Utils::from_word(self.mem.load(rs+imm, 4)? );}//lw
+            OP::I::SB    => {
                 let b = self.reg[rt];
                 let v = vec![b as u8;1];
 
                 self.mem.store( (rs+imm) as usize , 1, &v)?;
             }//sb
-            0b101001 => {
+            OP::I::SH => {
                 let b = self.reg[rt];
                 let v = vec![(b >> 8) as u8, (b & 0x00ff) as u8];
 
                 self.mem.store( (rs+imm) as usize, 2, &v)?;
             }//sh
-            0b101011 => {
+            OP::I::SW => {
                 let b = self.reg[rt];
                 let v = vec![(b & 0xff000000 >> 24) as u8, (b & 0x00ff0000 >> 16) as u8,(b & 0x0000ff00 >> 8) as u8, (b & 0x000000ff) as u8];
 
@@ -446,7 +448,7 @@ impl Core {
             }//sw
 
 
-            _ => { return Err(ExecutionError::UnrecognizedOPError(String::from(format!("Unrecognized I type func {:x}",func)))) }
+            _ => { return Err(ExecutionError::UnrecognizedOPError(format!("Unrecognized I type func {:x}",func))) }
 
 
         }
@@ -459,7 +461,7 @@ impl Core {
     fn handoff_J(&mut self,code: Word) -> Result<(), ExecutionError> {
 
         //special instruction, syscall
-        if code == 0x68000000 {
+        if code == OP::SYSCALL {
 
             if self.verbose { println!("\tSyscall; v0={}, v1={}\n[CORE]: Changed privilege mode to true", self.reg[2], self.reg[3]); }
 
@@ -474,10 +476,10 @@ impl Core {
         if self.verbose { println!("\tJ type: func=0x{:02x} jump_target=0x{:08x}",func,jump_target); }
 
         match func {
-            0b000010 => {self.PC = if jump_target != 0 {jump_target-4} else {jump_target};}
-            0b000011 => {self.reg[31] = self.PC; self.PC = if jump_target != 0 {jump_target-4} else {jump_target};}
+            OP::J::J   => {self.PC = if jump_target != 0 {jump_target-4} else {jump_target};}
+            OP::J::JAL => {self.reg[31] = self.PC; self.PC = if jump_target != 0 {jump_target-4} else {jump_target};}
 
-            _ => { return Err(ExecutionError::UnrecognizedOPError(String::from(format!("Unrecognized J type func {:02x}",func)))); }
+            _ => { return Err(ExecutionError::UnrecognizedOPError(format!("Unrecognized J type func {:02x}",func))); }
         }
 
         Ok(())
@@ -496,7 +498,10 @@ fn basic() {
 
     let mut c: Core = new(true);
 
-    c.load_RELF("src/libs/testbins/testingLS.s.relf");
+    match c.load_RELF("src/libs/testbins/testingLS.s.relf") {
+        Err(e) => { panic!("{}", e) }
+        Ok(_) => {}
+    }
     c.run().unwrap();
 }
 
@@ -523,7 +528,11 @@ fn long_compute() {
 
     let mut c: Core = new(true);
 
-    c.load_RELF("src/libs/testbins/perf_test.s.relf");
+    match c.load_RELF("src/libs/testbins/perf_test.s.relf") {
+        Err(e) => { panic!("{}",e) }
+        Ok(_) => {}
+    };
+
     c.run().unwrap();
 }
 

@@ -3,7 +3,6 @@ use super::Definitions::Errors::{HeaderError, MemError};
 use super::Definitions::Utils::{Byte, Half, Word};
 use super::Devices::MemoryMapped;
 
-use std::panic;
 use std::fs::File;
 use std::io::Read;
 use std::io;

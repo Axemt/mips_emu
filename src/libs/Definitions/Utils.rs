@@ -1,10 +1,12 @@
-
 #![allow(non_snake_case)]
 
 use std::convert::TryInto;
 
+#[allow(dead_code)]
 pub type Byte = u8;
+#[allow(dead_code)]
 pub type Half = u16;
+#[allow(dead_code)]
 pub type Word = u32;
 
 /**
@@ -53,8 +55,7 @@ pub fn from_sizeN<const N: usize>(contents: &[u8]) -> [u8; N] {
  */
 #[inline(always)]
 pub fn from_word(contents: &[u8]) -> u32 {
-    let word: u32 = contents[3] as u32 | (contents[2] as u32) << 8 | (contents[1] as u32) << 16 | (contents[0]as u32) << 24;
-    return word;
+    contents[3] as u32 | (contents[2] as u32) << 8 | (contents[1] as u32) << 16 | (contents[0]as u32) << 24
 }
 
 
@@ -76,8 +77,7 @@ pub fn from_word(contents: &[u8]) -> u32 {
  */
 #[inline(always)]
 pub fn from_half(contents: &[u8]) -> u32 {
-    let word: u32 = (contents[1] as u32)| (contents[0] as u32) << 8;
-    return word
+    (contents[1] as u32)| (contents[0] as u32) << 8
 }
 
 /**
@@ -98,9 +98,7 @@ pub fn from_half(contents: &[u8]) -> u32 {
  */
 #[inline(always)]
 pub fn from_byte(contents: &[u8]) -> u32 {
-    let word: u32 = contents[0] as u32;
-    
-    return word;
+    contents[0] as u32
 }
 
 #[macro_use]

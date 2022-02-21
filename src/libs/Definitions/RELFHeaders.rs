@@ -1,6 +1,3 @@
-
-use std::error::Error;
-
 #[derive(Debug)]
 pub struct RelfHeader32 {
 
@@ -10,6 +7,7 @@ pub struct RelfHeader32 {
     pub e_ident_VERSION: u8,
     pub e_ident_OSABI: u8,
     pub e_ident_ABIVERSION: u8,
+    #[allow(dead_code)]
     e_ident_EIPAD : std::vec::Vec<u8>, //7B :(  not used, so this dirty hack with vec works
     pub e_type: u16,
     pub e_machine: u16,
@@ -67,6 +65,7 @@ pub struct SectionHeader32 {
     pub p_filesz: u32,
     pub p_memsz: u32,
     pub p_flags: u32,
+    #[allow(dead_code)]
     p_align: u32 // unused
 
 }
