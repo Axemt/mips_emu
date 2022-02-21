@@ -33,39 +33,41 @@ pub struct Core {
 }
 
 
-pub fn new(v: bool) -> Core {
-
-    let mut mem = Memory::new(v);
-
-    //init default irq_handler
-    mem.set_privileged(true);
-    let DEFAULT_irq = Arch::DEFAULT_IRQH;
-    let irq_addr: u32 = 0x0;
-
-    if v { println!("[CORE]: Setting up default IRQH with address 0x{:08x}",irq_addr) }
-    mem.store(irq_addr as usize, DEFAULT_irq.len(),&DEFAULT_irq).unwrap();
-    mem.protect(irq_addr,DEFAULT_irq.len() as u32 + 4);
-    mem.set_privileged(false);
-
-    //add basic mapped devices
-    let console  = Box::new(Console::new() );
-    let keyboard = Box::new(Keyboard::new() );
-    mem.map_device( console.range_lower,console.range_upper, console  );
-    mem.map_device( keyboard.range_lower, keyboard.range_upper, keyboard);
-
-    let (send, recv) = mpsc::channel();
-
-    Interruptor::new_default("Clock", Duration::new(1, 0), &send, v);
-
-    let mut core = Core {reg: vec![0;32],HI: 0, LO: 0, mem: mem, flags: 0 ,PC: 0, irq_handler_addr: irq_addr, EPC: 0, IntEnableOnNext: false , verbose: v, interrupt_ch: recv};
-    core.set_flag(true, Arch::IENABLE_FLAG);
-
-
-    core
-}
-
 
 impl Core {
+
+    pub fn new(v: bool) -> Core {
+        //everything is supposed to be ok in this constructor, no need to use Result
+    
+        let mut mem = Memory::new(v);
+    
+        //init default irq_handler
+        mem.set_privileged(true);
+        let DEFAULT_irq = Arch::DEFAULT_IRQH;
+        let irq_addr: u32 = 0x0;
+    
+        if v { println!("[CORE]: Setting up default IRQH with address 0x{:08x}",irq_addr) }
+    
+        mem.store(irq_addr as usize, DEFAULT_irq.len(),&DEFAULT_irq).unwrap();
+        mem.protect(irq_addr,DEFAULT_irq.len() as u32 + 4);
+        mem.set_privileged(false);
+    
+        //add basic mapped devices
+        let console  = Box::new(Console::new() );
+        let keyboard = Box::new(Keyboard::new() );
+        mem.map_device( console.range_lower,console.range_upper, console  );
+        mem.map_device( keyboard.range_lower, keyboard.range_upper, keyboard);
+    
+        let (send, recv) = mpsc::channel();
+    
+        Interruptor::new_default("Clock", Duration::new(1, 0), &send, v);
+    
+        let mut core = Core {reg: vec![0;32],HI: 0, LO: 0, mem: mem, flags: 0 ,PC: 0, irq_handler_addr: irq_addr, EPC: 0, IntEnableOnNext: false , verbose: v, interrupt_ch: recv};
+        core.set_flag(true, Arch::IENABLE_FLAG);
+    
+    
+        core
+    }
 
     /**
      * Loads a RELF executable into memory and sets PC
@@ -496,7 +498,7 @@ impl Core {
 #[test]
 fn basic() {
 
-    let mut c: Core = new(true);
+    let mut c: Core = Core::new(true);
 
     match c.load_RELF("src/libs/testbins/testingLS.s.relf") {
         Err(e) => { panic!("{}", e) }
@@ -507,7 +509,7 @@ fn basic() {
 
 #[test]
 fn backwards_jumps() {
-    let mut c: Core = new(true);
+    let mut c: Core = Core::new(true);
 
     let start = 0x00000010;
     let hlt = [0x42, 0x00, 0x00, 0x10]; //hlt
@@ -526,7 +528,7 @@ fn backwards_jumps() {
 #[test]
 fn long_compute() {
 
-    let mut c: Core = new(true);
+    let mut c: Core = Core::new(true);
 
     match c.load_RELF("src/libs/testbins/perf_test.s.relf") {
         Err(e) => { panic!("{}",e) }
@@ -540,7 +542,7 @@ fn long_compute() {
 #[test]
 #[should_panic]
 fn unprivileged_rfe() {
-    let mut c: Core = new(true);
+    let mut c: Core = Core::new(true);
 
     let code = [0x42, 0x00, 0x00, 0x01]; //rfe
     c.mem.store(0x00fff, 4, &code).unwrap();
@@ -552,7 +554,7 @@ fn unprivileged_rfe() {
 #[test]
 #[should_panic]
 fn unprivileged_hlt() {
-    let mut c: Core = new(true);
+    let mut c: Core = Core::new(true);
 
     let code = [0x42, 0x00, 0x00, 0x10]; //hlt
     c.mem.store(0x00fff, 4, &code).unwrap();
@@ -564,7 +566,7 @@ fn unprivileged_hlt() {
 
 #[test]
 fn default_irqH() {
-    let mut c: Core = new(true);
+    let mut c: Core = Core::new(true);
 
     c.mem.store(0x00f8, 4, &[0x20, 0x02, 0x00, 0x0A]).unwrap(); //li $v0, 10
     c.mem.store(0x00fc, 4, &[0x68,0x00,0x00,0x00]).unwrap(); //syscall

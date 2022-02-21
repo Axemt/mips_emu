@@ -2,7 +2,7 @@
 #![feature(toowned_clone_into)]
 
 mod libs;
-use libs::Core;
+use libs::Core::Core;
 use std::panic;
 
 //import macro for pack/unpack
@@ -33,12 +33,12 @@ struct Args {
 fn main() {
 
     let args = Args::parse();
-    dbg!(&args.entry);
+
     let v = args.verbose;
     let filepath = args.filepath;
 
 
-    let mut cpu = Box::<Core::Core>::new(Core::new(v));
+    let mut cpu = Box::<Core>::new(Core::new(v));
 
     if filepath.ends_with(".relf") {
 
