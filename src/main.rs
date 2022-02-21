@@ -10,58 +10,50 @@ use std::panic;
 extern crate structure;
 extern crate clap;
 
-use clap::{Arg,App};
+use clap::Parser;
+
+#[derive(Parser, Debug)]
+#[clap(
+    author = "Axemt <github.com/Axemt>",
+    version = "0.92 built on Feb 21, 2022",
+    about = "A MIPS R3000 32b emulator",
+    long_about = None
+)]
+struct Args {
+    #[clap(short, long, help = "File to load to memory", required=true)]
+    filepath : String,
+    #[clap(short, long, help = "Set the verbose flag to show internal processing of the emulator", takes_value = false)]
+    verbose : bool,
+
+    //TODO: See args.entry block
+    #[clap(short, long, help = "Set a custom entrypoint (Required for .bin files); If using a hex value, prefix with '0x'", required = false, default_value = "")]
+    entry : String
+}
 
 fn main() {
 
-    let matches = App::new("Mips Runtime")
-                    .version("0.90 built on Nov 23, 2021" )
-                    .author("Axemt <github.com/Axemt>")
-                    .about("A MIPS R3000 32b emulator")
-                    .arg(Arg::with_name("File")
-                             .short("f")
-                             .long("File")
-                             .value_name("FILEPATH")
-                             .help("File to load to memory")
-                             .takes_value(true)
-                             .required(true)
-                            )
-                    .arg(Arg::with_name("Verbose")
-                             .help("Set the verbose flag to show internal processing of the emulator")
-                             .short("v")
-                             .long("Verbose")
-                             .value_name("V")
-                             .takes_value(false)
-                            )
-                    .arg(Arg::with_name("Entry")
-                             .help("Set a custom entrypoint (Required for .bin files); If using a hex value, prefix with '0x'")
-                             .short("e")
-                             .long("Entry")
-                             .value_name("E")
-                             .takes_value(true)
-                            )
-
-                    .get_matches();
-
-    let v = matches.is_present("Verbose");
-    let filepath = matches.value_of("File").unwrap();
+    let args = Args::parse();
+    dbg!(&args.entry);
+    let v = args.verbose;
+    let filepath = args.filepath;
 
 
     let mut cpu = Box::<Core::Core>::new(Core::new(v));
 
     if filepath.ends_with(".relf") {
 
-        match cpu.load_RELF(filepath) {
+        match cpu.load_RELF(&filepath) {
             Err(eobj) => { panic!("{eobj}") }
             _ => {}
         }
 
     } else { //raw .bin file
 
-        if matches.is_present("Entry") {
+        //TODO: Any way to go into this block if args.entry is present instead of comparing with an arbitrary default?
+        if args.entry != "" {
 
 
-            let s = matches.value_of("Entry").unwrap();
+            let s = args.entry;
 
             let entry: u32;
 
@@ -71,7 +63,7 @@ fn main() {
                 entry = s.parse::<u32>().unwrap();
             }
 
-            match cpu.load_bin(filepath,entry) {
+            match cpu.load_bin(&filepath,entry) {
                 Err(eobj) => { panic!("{eobj}") }
                 _ => {}
             }

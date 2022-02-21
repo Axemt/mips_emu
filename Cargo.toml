@@ -11,4 +11,4 @@ debug = true
 [dependencies]
 libmath = "0.1.4"
 structure = "0.1"
-clap = "2.33.3"
+clap = { version = "3.0.14", features = ["derive"] }
