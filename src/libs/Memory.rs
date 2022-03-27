@@ -18,27 +18,27 @@ pub struct Memory {
     
 }
 
-/**
+
+ impl Memory {
+
+    /**
      * Initializes the memory object
      * 
      * ARGS:
      * 
      *  v: Verbose flag
      * **/
-pub fn new( v: bool) -> Memory{
-
-    return Memory {
-         mem_array: vec![0;0],
-         mem_size: 0,
-         protected_ranges: Vec::<(u32, u32)>::new(),
-         mode_privilege: false,
-         verbose: v, 
-         devices: Vec::<(u32, u32, Box<dyn MemoryMapped>)>::new()
-        };
-
-}
-
- impl Memory {
+    pub fn new( v: bool) -> Memory{
+    
+        Memory {
+             mem_array: vec![0;0],
+             mem_size: 0,
+             protected_ranges: Vec::<(u32, u32)>::new(),
+             mode_privilege: false,
+             verbose: v, 
+             devices: Vec::<(u32, u32, Box<dyn MemoryMapped>)>::new()
+            }
+    }
 
         /**
      *  Adds the range proct_low .. proct_high to the set of protected address ranges
@@ -376,7 +376,7 @@ pub fn new( v: bool) -> Memory{
 #[test]
 fn loading() {
 
-    let mut m: Memory = new(true);
+    let mut m: Memory = Memory::new(true);
     match m.load_RELF("src/libs/testbins/parsing_more.s.relf") {
         Ok(ept) => assert_eq!(ept,0x00400000),
         Err(eobj) => panic!("{eobj}")
@@ -384,7 +384,7 @@ fn loading() {
     
     drop(m);
 
-    let mut m: Memory = new(false);
+    let mut m: Memory = Memory::new(false);
     match m.load_RELF("src/libs/testbins/testingLS.s.relf") {
         Ok(ept) => assert_eq!(ept,0x00400000),
         Err(eobj) => panic!("{eobj}")
@@ -394,7 +394,7 @@ fn loading() {
 
 #[test]
 fn load_store() {
-    let mut m = new(true);
+    let mut m = Memory::new(true);
 
     //store as word...
     //also implicitly extends mem dynamically
@@ -409,14 +409,14 @@ fn load_store() {
 #[test]
 fn extend_mem_all() {
 
-    let mut m: Memory = new(true);
+    let mut m: Memory = Memory::new(true);
 
     m.extend_mem_FAST(0x700000);
 
     assert_eq!(m.mem_size, m.mem_array.len());
     assert_eq!(m.mem_array.len(), 0x700000);
 
-    m = new(true);
+    m = Memory::new(true);
 
     m.extend_mem(0x80);
 
@@ -429,7 +429,7 @@ fn extend_mem_all() {
 #[should_panic]
 fn unprivileged_protected_access() {
 
-    let mut m: Memory = new(true);
+    let mut m: Memory = Memory::new(true);
 
     m.extend_mem_FAST(0x0000ff00);
     m.protect(0,0x0000fC00);
@@ -439,7 +439,7 @@ fn unprivileged_protected_access() {
 
 
     //access to protected -> panic
-    let mut m2: Memory = new(true);
+    let mut m2: Memory = Memory::new(true);
     m2.extend_mem_FAST(0x0000ff00);
     m2.protect(0,0x0000fC00);
     m2.store(0x0000AA00, 4, got).unwrap();
@@ -448,7 +448,7 @@ fn unprivileged_protected_access() {
 #[test]
 fn privileged_protected_access() {
 
-       let mut m: Memory = new(true);
+       let mut m: Memory = Memory::new(true);
 
        m.extend_mem_FAST(0x0000ff00);
        m.protect(0,0x0000fC00);
@@ -464,7 +464,7 @@ fn privileged_protected_access() {
 fn device_access() {
     use super::Devices;
 
-    let mut m: Memory = new(true);
+    let mut m: Memory = Memory::new(true);
     let c = Box::new(Devices::Console::new() );
     let k = Box::new(Devices::Keyboard::new() );
 

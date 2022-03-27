@@ -1,20 +1,20 @@
-use super::Memory;
+use super::Memory::Memory;
 use super::Definitions::Utils::{Byte, Half, Word};
-use super::Definitions::Utils;
-use super::Definitions::Stats;
+use super::Definitions::{Utils, Stats};
 use super::Definitions::Arch;
 use super::Definitions::Arch::OP;
 
 use super::Definitions::Errors::{ExecutionError, HeaderError};
 
-use super::Devices::MemoryMapped;
-use super::Devices::{Console,Keyboard,Interruptor};
+use super::Devices::{MemoryMapped,Console,Keyboard,Interruptor};
 
 use crate::to_signed;
 use crate::to_signed_cond;
 
 use std::time::Duration;
 use std::sync::mpsc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 
 pub struct Core {
@@ -22,14 +22,15 @@ pub struct Core {
     reg: Vec<Word>,
     HI: Word,
     LO: Word,
-    mem: Memory::Memory,
+    mem: Memory,
     flags: Word,
     PC: u32,
     irq_handler_addr: u32,
     EPC: u32,
     IntEnableOnNext: bool,
     verbose: bool,
-    interrupt_ch: mpsc::Receiver<u32>
+    interrupt_ch: mpsc::Receiver<u32>,
+    interrupt_ch_open: Arc<AtomicBool>
 }
 
 
@@ -60,12 +61,25 @@ impl Core {
     
         let (send, recv) = mpsc::channel();
     
-        Interruptor::new_default("Clock", Duration::new(1, 0), &send, v);
-    
-        let mut core = Core {reg: vec![0;32],HI: 0, LO: 0, mem: mem, flags: 0 ,PC: 0, irq_handler_addr: irq_addr, EPC: 0, IntEnableOnNext: false , verbose: v, interrupt_ch: recv};
+        let mut core = Core {
+            reg: vec![0;32],
+            HI: 0,
+            LO: 0,
+            mem: mem,
+            flags: 0,
+            PC: 0,
+            irq_handler_addr: irq_addr,
+            EPC: 0,
+            IntEnableOnNext: false,
+            verbose: v,
+            interrupt_ch: recv,
+            interrupt_ch_open: Arc::new(AtomicBool::new(true))
+        };
         core.set_flag(true, Arch::IENABLE_FLAG);
-    
-    
+
+        Interruptor::new_default("Clock", Duration::new(1, 0), &send, core.interrupt_ch_open.clone(), v);
+        
+        
         core
     }
 
@@ -293,41 +307,30 @@ impl Core {
         //non-zero value for flag check after
         let mut res = 1;
         match func {
-            OP::R::ADD  => {res = if rt_sign_positive { rs.overflowing_add(rt).0 } else { rs.overflowing_sub(rt).0 }; self.reg[rd] = res},   //add
-            OP::R::ADDU => {res = rs.overflowing_add(rt).0; self.reg[rd] = res;},   //addu
-            OP::R::AND  => {res = rs & rt; self.reg[rd] = res;},   //and
-            OP::R::NOR  => {res = !(rs | rt); self.reg[rd] = res;},//nor
-            OP::R::OR   => {res = rs | rt; self.reg[rd] = res;},   //or
-            OP::R::SUB  => {res = rs.overflowing_sub(rt).0; self.reg[rd] = res;} ,  //sub
-            OP::R::SUBU => {res = rs.overflowing_sub(rt).0; self.reg[rd] = res;},   //subu
-            OP::R::XOR  => {res = rs ^ rt; self.reg[rd] = res;},   //xor
-            OP::R::SLT  => { if to_signed_cond!(rs, rs_sign_positive, u32) < to_signed_cond!(rt, rt_sign_positive, u32) {self.reg[rd] = 1} else {self.reg[rd] = 0} },  //slt FLAGS NOT IMPLEMENTED!
-            OP::R::SLTU => { if rs < rt {res = 1} else {res = 0}; self.reg[rd] = res;}, //sltu
-            OP::R::DIV  => {self.LO = rs / rt; self.HI = rs % rt;},          //div
-            OP::R::DIVU => {self.LO = rs.saturating_div(rt); self.HI = rs % rt;}, //divu
-            OP::R::MULT => {
-                //destructuring assignments are unstable
-                let m_tupl = (to_signed_cond!(rs, rs_sign_positive, u32)).widening_mul(to_signed_cond!(rt, rt_sign_positive, u32));
-
-                self.HI = m_tupl.0;
-                self.LO = m_tupl.1;
-            },//mult
-            OP::R::MULTU => {
-                let m_tupl = rs.widening_mul(rt);
-
-                self.HI = m_tupl.0;
-                self.LO = m_tupl.1 ;
-            },//multu
-            OP::R::SLL  => {res = rt << sham; self.reg[rd] = res;},//sll
-            OP::R::SRA  => {res = (rt as i32 >> sham as i32) as u32; self.reg[rd] = res;},//sra ; for rust to do shift aritmetic, use signed types
-            OP::R::SRAV => {res = (rt as i32 >> rs as i32) as u32; self.reg[rd] = res;},   //srav; for rust to do shift aritmetic, use signed types
-            OP::R::SRLV => {res = rt >> rs; self.reg[rd] = res;},//srlv
-            OP::R::JARL => {self.reg[31] = self.PC; self.PC = if rs != 0 {rs-4} else {rs};},//jalr
-            OP::R::JR   => {self.PC = if rs != 0 {rs-4} else {rs}},//jr
-            OP::R::MFHI => {self.reg[rd] = self.HI;},//mfhi
-            OP::R::MFLO => {self.reg[rd] = self.LO;},//mflo
-            OP::R::MTHI => {self.HI = rs;},//mthi
-            OP::R::MTLO => {self.LO = rs;},//mtlo
+            OP::R::ADD   => {res = if rt_sign_positive { rs.overflowing_add(rt).0 } else { rs.overflowing_sub(rt).0 }; self.reg[rd] = res},   //add
+            OP::R::ADDU  => {res = rs.overflowing_add(rt).0; self.reg[rd] = res;},   //addu
+            OP::R::AND   => {res = rs & rt; self.reg[rd] = res;},   //and
+            OP::R::NOR   => {res = !(rs | rt); self.reg[rd] = res;},//nor
+            OP::R::OR    => {res = rs | rt; self.reg[rd] = res;},   //or
+            OP::R::SUB   => {res = rs.overflowing_sub(rt).0; self.reg[rd] = res;} ,  //sub
+            OP::R::SUBU  => {res = rs.overflowing_sub(rt).0; self.reg[rd] = res;},   //subu
+            OP::R::XOR   => {res = rs ^ rt; self.reg[rd] = res;},   //xor
+            OP::R::SLT   => { if to_signed_cond!(rs, rs_sign_positive, u32) < to_signed_cond!(rt, rt_sign_positive, u32) {self.reg[rd] = 1} else {self.reg[rd] = 0} },  //slt FLAGS NOT IMPLEMENTED!
+            OP::R::SLTU  => { if rs < rt {res = 1} else {res = 0}; self.reg[rd] = res;}, //sltu
+            OP::R::DIV   => {self.LO = rs / rt; self.HI = rs % rt;},          //div
+            OP::R::DIVU  => {self.LO = rs.saturating_div(rt); self.HI = rs % rt;}, //divu
+            OP::R::MULT  => { (self.HI, self.LO) = (to_signed_cond!(rs, rs_sign_positive, u32)).widening_mul(to_signed_cond!(rt, rt_sign_positive, u32)); },//mult
+            OP::R::MULTU => { (self.HI, self.LO) = rs.widening_mul(rt); },//multu
+            OP::R::SLL   => {res = rt << sham; self.reg[rd] = res;},//sll
+            OP::R::SRA   => {res = (rt as i32 >> sham as i32) as u32; self.reg[rd] = res;},//sra ; for rust to do shift aritmetic, use signed types
+            OP::R::SRAV  => {res = (rt as i32 >> rs as i32) as u32; self.reg[rd] = res;},   //srav; for rust to do shift aritmetic, use signed types
+            OP::R::SRLV  => {res = rt >> rs; self.reg[rd] = res;},//srlv
+            OP::R::JARL  => {self.reg[31] = self.PC; self.PC = if rs != 0 {rs-4} else {rs};},//jalr
+            OP::R::JR    => {self.PC = if rs != 0 {rs-4} else {rs}},//jr
+            OP::R::MFHI  => {self.reg[rd] = self.HI;},//mfhi
+            OP::R::MFLO  => {self.reg[rd] = self.LO;},//mflo
+            OP::R::MTHI  => {self.HI = rs;},//mthi
+            OP::R::MTLO  => {self.LO = rs;},//mtlo
 
 
             _ => { return Err(ExecutionError::UnrecognizedOPError(format!("Unrecognized R type func {:x}",func))) ;}
@@ -386,11 +389,15 @@ impl Core {
                 //panic!("Tried to use privileged instruction 0x{:08x} but the mode bitflag was not set to 1; Flags=0x{:08x}",code, self.flags); 
             }
 
+            println!("[CORE]: Sending interrupt channel close signal");
+            self.interrupt_ch_open.swap(false, Ordering::Relaxed);
+
             //set fin flag, disable privileged
             self.set_flag(false, Arch::MODE_FLAG);
-            self.mem.set_privileged(false);
-
             self.set_flag(true, Arch::FIN_FLAG);
+            self.mem.set_privileged(false);
+            //"await" interrupt channel termination
+            while !self.interrupt_ch.recv_timeout(Duration::new(0, 1)).is_err() {}
 
             return Ok(());
 
