@@ -30,6 +30,7 @@ struct Args {
     entry : String
 }
 
+#[cfg(not(tarpaulin_include))]
 fn main() {
 
     let args = Args::parse();

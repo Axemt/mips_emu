@@ -2,7 +2,7 @@ use super::Memory::Memory;
 use super::Definitions::Utils::{Byte, Half, Word};
 use super::Definitions::{Utils, Stats};
 use super::Definitions::Arch;
-use super::Definitions::Arch::OP;
+use super::Definitions::Arch::{OP, RegNames};
 
 use super::Definitions::Errors::{ExecutionError, HeaderError};
 
@@ -19,7 +19,7 @@ use std::sync::Arc;
 
 pub struct Core {
 
-    reg: Vec<Word>,
+    reg: [Word ; 32],
     HI: Word,
     LO: Word,
     mem: Memory,
@@ -41,7 +41,8 @@ impl Core {
         //everything is supposed to be ok in this constructor, no need to use Result
     
         let mut mem = Memory::new(v);
-    
+        let mut reg = [0; 32];
+
         //init default irq_handler
         mem.set_privileged(true);
         let DEFAULT_irq = Arch::DEFAULT_IRQH;
@@ -49,8 +50,14 @@ impl Core {
     
         if v { println!("[CORE]: Setting up default IRQH with address 0x{:08x}",irq_addr) }
     
+        let stackbase = DEFAULT_irq.len() as u32 + 8;
         mem.store(irq_addr as usize, DEFAULT_irq.len(),&DEFAULT_irq).unwrap();
-        mem.protect(irq_addr,DEFAULT_irq.len() as u32 + 4);
+        mem.protect(irq_addr,stackbase - 4);
+
+        if v { println!("[CORE]: Setting up stack from 0x{:08x} to 0x{:08x}",stackbase, stackbase + Arch::STACKSIZE); }
+
+        mem.protect(stackbase, stackbase + Arch::STACKSIZE);
+        reg[RegNames::SP] = stackbase;
         mem.set_privileged(false);
     
         //add basic mapped devices
@@ -62,7 +69,7 @@ impl Core {
         let (send, recv) = mpsc::channel();
     
         let mut core = Core {
-            reg: vec![0;32],
+            reg: reg,
             HI: 0,
             LO: 0,
             mem: mem,
@@ -79,6 +86,7 @@ impl Core {
 
         Interruptor::new_default("Clock", Duration::new(1, 0), &send, core.interrupt_ch_open.clone(), v);
         
+        if v { println!("[CORE]: Created successfully!\n"); }
         
         core
     }
@@ -167,6 +175,7 @@ impl Core {
      *  proct_high: Highest address of the reserved range
      *
      */
+    #[cfg(not(tarpaulin_include))]
     #[allow(dead_code)]
     pub fn protect_mem(&mut self, proct_low: u32, proct_high: u32) {
         self.mem.protect(proct_low,proct_high);
@@ -179,6 +188,7 @@ impl Core {
      *
      * irqpc: The address to jump to on interrupt
      */
+    #[cfg(not(tarpaulin_include))]
     #[allow(dead_code)]
     pub fn set_IrqHPC(&mut self, irq_pc: u32) {
         self.irq_handler_addr = irq_pc
@@ -202,9 +212,9 @@ impl Core {
             stat.cycle_incr();
             stat.instr_incr();
 
-            //increment pc, set reg[0] to constant
+            //increment pc, set $0 to constant
             self.PC += 4;
-            self.reg[0] = 0;
+            self.reg[RegNames::ZERO] = 0;
 
             // end of instruction routines
 
@@ -325,7 +335,7 @@ impl Core {
             OP::R::SRA   => {res = (rt as i32 >> sham as i32) as u32; self.reg[rd] = res;},//sra ; for rust to do shift aritmetic, use signed types
             OP::R::SRAV  => {res = (rt as i32 >> rs as i32) as u32; self.reg[rd] = res;},   //srav; for rust to do shift aritmetic, use signed types
             OP::R::SRLV  => {res = rt >> rs; self.reg[rd] = res;},//srlv
-            OP::R::JARL  => {self.reg[31] = self.PC; self.PC = if rs != 0 {rs-4} else {rs};},//jalr
+            OP::R::JARL  => {self.reg[RegNames::RA] = self.PC; self.PC = if rs != 0 {rs-4} else {rs};},//jalr
             OP::R::JR    => {self.PC = if rs != 0 {rs-4} else {rs}},//jr
             OP::R::MFHI  => {self.reg[rd] = self.HI;},//mfhi
             OP::R::MFLO  => {self.reg[rd] = self.LO;},//mflo
@@ -472,7 +482,7 @@ impl Core {
         //special instruction, syscall
         if code == OP::SYSCALL {
 
-            if self.verbose { println!("\tSyscall; v0={}, v1={}\n[CORE]: Changed privilege mode to true", self.reg[2], self.reg[3]); }
+            if self.verbose { println!("\tSyscall; v0={}, v1={}\n[CORE]: Changed privilege mode to true", self.reg[RegNames::V0], self.reg[RegNames::V1]); }
 
             //save current pc, jump to IrqH, set privileged flag
             self.interrupt();
@@ -486,7 +496,7 @@ impl Core {
 
         match func {
             OP::J::J   => {self.PC = if jump_target != 0 {jump_target-4} else {jump_target};}
-            OP::J::JAL => {self.reg[31] = self.PC; self.PC = if jump_target != 0 {jump_target-4} else {jump_target};}
+            OP::J::JAL => {self.reg[RegNames::RA] = self.PC; self.PC = if jump_target != 0 {jump_target-4} else {jump_target};}
 
             _ => { return Err(ExecutionError::UnrecognizedOPError(format!("Unrecognized J type func {:02x}",func))); }
         }
@@ -574,10 +584,10 @@ fn unprivileged_hlt() {
 #[test]
 fn default_irqH() {
     let mut c: Core = Core::new(true);
-
-    c.mem.store(0x00f8, 4, &[0x20, 0x02, 0x00, 0x0A]).unwrap(); //li $v0, 10
-    c.mem.store(0x00fc, 4, &[0x68,0x00,0x00,0x00]).unwrap(); //syscall
-    c.PC = 0x00f8;
+ 
+    c.mem.store(0xff0f8, 4, &[0x20, 0x02, 0x00, 0x0A]).unwrap(); //li $v0, 10
+    c.mem.store(0xff0fc, 4, &[0x68,0x00,0x00,0x00]).unwrap(); //syscall
+    c.PC = 0xff0f8;
 
     c.run().unwrap();
 }
