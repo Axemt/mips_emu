@@ -389,7 +389,7 @@ impl Core {
                 //panic!("Tried to use privileged instruction 0x{:08x} but the mode bitflag was not set to 1; Flags=0x{:08x}",code, self.flags); 
             }
 
-            println!("[CORE]: Sending interrupt channel close signal");
+            if self.verbose { println!("[CORE]: Sending interrupt channel close signal"); }
             self.interrupt_ch_open.swap(false, Ordering::Relaxed);
 
             //set fin flag, disable privileged

@@ -37,7 +37,10 @@ pub fn new<FuncTyp>(name: &'static str,duration: Duration, ch_send: &mpsc::Sende
         loop {
             // flag is false -> close thread
             if !ch_open_flag.load(Ordering::Relaxed) {
-                println!("[{}]: Channel close flag set: closing",name.to_uppercase()); break;
+                if verbose {
+                    println!("[{}]: Channel close flag set: closing",name.to_uppercase());
+                }
+                break;
             }
 
             if action() { 
@@ -48,7 +51,12 @@ pub fn new<FuncTyp>(name: &'static str,duration: Duration, ch_send: &mpsc::Sende
 
                 match ch_send.send(1) {
                     Ok(_) => {}
-                    Err(_) => {println!("[{}]: CORE channel unavailable: CORE assumed dead, closing", name.to_uppercase()); break;}
+                    Err(_) => {
+                        if verbose {
+                            println!("[{}]: CORE channel unavailable: CORE assumed dead, closing", name.to_uppercase());
+                        }
+                        break;
+                    }
                 }
 
             }
