@@ -55,6 +55,12 @@ pub struct RelfHeader32 {
 
     }
 
+impl From<(u32,u8,u8,u8,u8,u8,std::vec::Vec<u8>,u16,u16,u32,u32,u32,u32,u32,u16,u16,u16,u16,u16,u16)> for RelfHeader32 {
+    fn from(tpl: (u32,u8,u8,u8,u8,u8,std::vec::Vec<u8>,u16,u16,u32,u32,u32,u32,u32,u16,u16,u16,u16,u16,u16)) -> Self {
+        RelfHeader32::from_tuple(tpl)
+    }
+}
+
 #[derive(Debug)]
 pub struct SectionHeader32 {
 
@@ -87,3 +93,9 @@ pub struct SectionHeader32 {
         }
 
     }
+
+impl From<(u32,u32,u32,u32,u32,u32,u32,u32)> for SectionHeader32 {
+    fn from(tpl: (u32,u32,u32,u32,u32,u32,u32,u32)) -> Self {
+        SectionHeader32::from_tuple(tpl)
+    }
+}

@@ -7,6 +7,8 @@ use std::fs::File;
 use std::io::Read;
 use std::io;
 
+extern crate structure;
+
 pub struct Memory {
 
     mem_array: Vec<Byte>,
@@ -135,7 +137,7 @@ pub struct Memory {
             let prot_high = elem.1;
 
             if dir < prot_high && dir >= prot_lo && !self.mode_privilege { 
-                return Err(MemError::PermError(String::from(format!("Tried to access protected region range [0x{:08x}..0x{:08x}] at address 0x{:08x}",prot_lo, prot_high,dir) ) ) ) 
+                return Err(MemError::PermError(prot_lo, prot_high,dir as usize) ) 
             }
 
         }   
@@ -147,17 +149,15 @@ pub struct Memory {
         if d+size > self.mem_size { self.extend_mem(d+size-self.mem_size); }
         
 
-        for elem in & mut self.devices {
+        for (dev_lower, dev_upper, device) in & mut self.devices {
             
-            let dev_lower = elem.0;
-            let dev_upper = elem.1;
 
             //check if in range of a device
-            if dir >= dev_lower && dir <= dev_upper { 
+            if dir >= *dev_lower && dir <= *dev_upper { 
 
                 if self.verbose { println!("[MEM]: Read access to Memory Mapped Device at address 0x{:08x}; Handing off...", dir); }
 
-                contents =  elem.2.read(dir, size)? ;
+                contents =  device.read(dir, size)? ;
                 return Ok(contents);
             }
 
@@ -194,7 +194,7 @@ pub struct Memory {
             let prot_high = elem.1;
 
             if d < prot_high && d >= prot_lo && self.mode_privilege == false {
-                return Err(MemError::PermError(String::from(format!("Tried to access protected region range [0x{:08x}..0x{:08x}] at address 0x{:08x}",prot_lo, prot_high,dir) ) ) );
+                return Err(MemError::PermError(prot_lo, prot_high, dir) );
             }
 
         }
@@ -272,11 +272,7 @@ pub struct Memory {
         File::open(RELF)?.read_to_end(& mut fBuffer)?;
 
         // unpack
-        let s_relf_header = structure!(">I5B7s2H5I6H");
-        let tuple_relf_header = s_relf_header.unpack(&fBuffer[0..52])?;
-
-        //cast
-        let relf_header: RelfHeader32 = RelfHeader32::from_tuple(tuple_relf_header);
+        let relf_header: RelfHeader32 = structure!(">I5B7s2H5I6H").unpack(&fBuffer[0..52])?.into();
 
         if self.verbose {
             println!("found RelfHeader32!:\n\t{:x?}",relf_header);
@@ -294,10 +290,7 @@ pub struct Memory {
 
 
         //unpack
-        let s_header = structure!(">8I");
-        let tuple_prog_header = s_header.unpack(&fBuffer[52..(52+relf_header.e_phentsize) as usize])?;
-        //cast
-        let prog_header : SectionHeader32 = SectionHeader32::from_tuple(tuple_prog_header);
+        let prog_header: SectionHeader32 = structure!(">8I").unpack(&fBuffer[52..(52+relf_header.e_phentsize) as usize])?.into();
 
         if self.verbose {
             println!("found PROGRAM SectionHeader32!:\n\t{:x?}",prog_header);
@@ -310,9 +303,8 @@ pub struct Memory {
 
 
         //unpack
-        let tuple_data_header = s_header.unpack(&fBuffer[(52+relf_header.e_phentsize as usize)..(52+2*relf_header.e_phentsize as usize)]).unwrap();
-        //cast
-        let data_header : SectionHeader32 = SectionHeader32::from_tuple(tuple_data_header);
+        let data_header: SectionHeader32 = structure!(">8I").unpack(&fBuffer[(52+relf_header.e_phentsize as usize)..(52+2*relf_header.e_phentsize as usize)])?.into();
+
 
         if self.verbose {
             println!("found DATA SectionHeader32!:\n\t{:x?}",data_header);

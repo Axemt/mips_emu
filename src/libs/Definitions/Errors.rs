@@ -30,14 +30,14 @@ impl std::error::Error for HeaderError {}
 
 #[derive(Debug)]
 pub enum MemError {
-  PermError(String),
+  PermError(u32, u32, usize),
   MappedDeviceError(String)
 }
 
 impl std::fmt::Display for MemError {
   fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
     match self {
-      MemError::PermError(emsg) => write!(f, "{emsg}"),
+      MemError::PermError(range_hi, range_lo, addr) => write!(f, "{}", format!("Tried to access protected region range [0x{:08x}..0x{:08x}] at address 0x{:08x}", range_hi, range_lo, addr)),
       MemError::MappedDeviceError(emsg) => {write!(f, "{emsg}")}
     }
   }
@@ -79,7 +79,7 @@ fn error_fmt() {
   println!("{}",HeaderError::IOError(String::from("")));
 
   println!("{}", MemError::MappedDeviceError(String::from("")));
-  println!("{}", MemError::PermError(String::from("")));
+  println!("{}", MemError::PermError(1,2,3));
 
   println!("{}",ExecutionError::MemError(String::from("")));
   println!("{}",ExecutionError::PrivilegeError(String::from("")));
@@ -91,5 +91,5 @@ fn error_from() {
   #[allow(unused_variables)]
   let e: HeaderError = std::io::Error::new(std::io::ErrorKind::Other, "error!").into();
   #[allow(unused_variables)]
-  let e2: ExecutionError = MemError::PermError(String::from("")).into();
+  let e2: ExecutionError = MemError::PermError(1,2,3).into();
 }
