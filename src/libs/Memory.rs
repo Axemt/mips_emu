@@ -324,7 +324,7 @@ pub struct Memory {
         if data_header.p_memsz > 0 {
             data_raw = &fBuffer[(52+4+data_header.p_offset+data_header.p_offset) as usize..];
         } else {
-            data_raw = &[0;1];
+            data_raw = &[0;0];
         }
 
         let code_raw = &fBuffer[52+prog_header.p_offset as usize..(52+prog_header.p_offset+prog_header.p_memsz) as usize];

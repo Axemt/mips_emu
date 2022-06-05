@@ -26,7 +26,7 @@ pub struct RelfHeader32 {
 }
     impl RelfHeader32{
 
-        pub fn from_tuple(tuple: (u32,u8,u8,u8,u8,u8,std::vec::Vec<u8>,u16,u16,u32,u32,u32,u32,u32,u16,u16,u16,u16,u16,u16)) -> RelfHeader32 {
+        fn from_tuple(tuple: (u32,u8,u8,u8,u8,u8,std::vec::Vec<u8>,u16,u16,u32,u32,u32,u32,u32,u16,u16,u16,u16,u16,u16)) -> RelfHeader32 {
 
             RelfHeader32{
                 e_ident_MAG: tuple.0, 
@@ -78,7 +78,7 @@ pub struct SectionHeader32 {
 
     impl SectionHeader32 {
 
-        pub fn from_tuple(tuple: (u32,u32,u32,u32,u32,u32,u32,u32)) -> SectionHeader32{
+        fn from_tuple(tuple: (u32,u32,u32,u32,u32,u32,u32,u32)) -> SectionHeader32{
 
             SectionHeader32 {
                 p_type: tuple.0, 
