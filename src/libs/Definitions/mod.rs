@@ -1,5 +1,5 @@
-pub mod Utils;
 pub mod Arch;
+pub mod Errors;
 pub mod RELFHeaders;
 pub mod Stats;
-pub mod Errors;
+pub mod Utils;

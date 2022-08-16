@@ -1,6 +1,6 @@
+use super::super::Definitions::Errors::MemError;
 use super::super::Definitions::Utils::from_sizeN;
 use super::MemoryMapped;
-use super::super::Definitions::Errors::MemError;
 
 #[derive(Copy, Clone)]
 
@@ -12,32 +12,39 @@ pub struct Console {
 
 impl MemoryMapped for Console {
     fn read(&mut self, dir: u32, _size: usize) -> Result<&[u8], MemError> {
-        Err(MemError::MappedDeviceError(String::from(format!("Tried to read from non-readable device 'Console' at address {:08x}",dir))))
+        Err(MemError::MappedDeviceError(String::from(format!(
+            "Tried to read from non-readable device 'Console' at address {:08x}",
+            dir
+        ))))
     }
 
     fn write(&mut self, dir: usize, size: usize, contents: &[u8]) -> Result<(), MemError> {
         //if writing to lower address, print
         if dir + size - 1 <= self.range_lower as usize + 3 {
+            print!("[CON]:");
             match self.mode {
                 0 => {
-                    println!("{}", u32::from_be_bytes(from_sizeN::<4>(contents)))
+                    print!("{}", u32::from_be_bytes(from_sizeN::<4>(contents)))
                 } //print int
                 1 => {
-                    println!("{}", f32::from_be_bytes(from_sizeN::<4>(contents)))
+                    print!("{}", f32::from_be_bytes(from_sizeN::<4>(contents)))
                 } //print float
                 2 => {
-                    println!("{}", f64::from_be_bytes(from_sizeN::<8>(contents)))
+                    print!("{}", f64::from_be_bytes(from_sizeN::<8>(contents)))
                 } //print double
                 3 => {
                     for i in contents {
                         print!("{}", *i as char);
                     }
-                    println!()
                 } //print string
                 _ => {
-                    return Err(MemError::MappedDeviceError(String::from(format!("Console: Unknown print mode {}", self.mode))))
+                    return Err(MemError::MappedDeviceError(String::from(format!(
+                        "Console: Unknown print mode {}",
+                        self.mode
+                    ))))
                 }
             }
+            println!()
         }
         //write a byte to mode
         else {

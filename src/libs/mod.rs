@@ -1,6 +1,6 @@
 #![allow(non_snake_case)]
 
-mod Memory;
+pub mod Core;
 mod Definitions;
 pub mod Devices;
-pub mod Core;
+mod Memory;

@@ -1,5 +1,5 @@
-use std::time::Instant;
 use std::time::Duration;
+use std::time::Instant;
 
 #[derive(Debug)]
 pub struct Stats {
@@ -7,15 +7,18 @@ pub struct Stats {
     pub cycl_count: usize,
     pub st_time: Instant,
     pub exec_total_time: Duration,
-
 }
 
 pub fn new() -> Stats {
-    Stats {instr_count: 0, cycl_count: 0, st_time: Instant::now(), exec_total_time: Duration::new(0,0)}
+    Stats {
+        instr_count: 0,
+        cycl_count: 0,
+        st_time: Instant::now(),
+        exec_total_time: Duration::new(0, 0),
+    }
 }
 
 impl Stats {
-
     pub fn CPI(&self) -> f32 {
         self.cycl_count as f32 / self.instr_count as f32
     }
@@ -31,7 +34,6 @@ impl Stats {
     pub fn mark_finished(&mut self) -> Duration {
         self.exec_total_time = self.st_time.elapsed();
         self.exec_total_time
-
     }
 
     pub fn exec_total_time(&self) -> Duration {
@@ -41,5 +43,4 @@ impl Stats {
     pub fn avg_time_per_instr(&self) -> f32 {
         self.exec_total_time().as_secs_f32() / self.instr_count as f32
     }
-
 }

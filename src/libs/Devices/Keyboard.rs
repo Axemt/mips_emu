@@ -1,64 +1,64 @@
+use super::super::Definitions::Errors::MemError;
+use super::super::Definitions::Utils::from_sizeN;
 use super::MemoryMapped;
 use std::io;
 use std::io::Read;
-use super::super::Definitions::Utils::from_sizeN;
-use super::super::Definitions::Errors::MemError;
 
 pub struct Keyboard {
     pub range_lower: u32,
     pub range_upper: u32,
     buffer: Vec<u8>,
-    mode: u8
+    mode: u8,
 }
 
 impl MemoryMapped for Keyboard {
-
     fn read(&mut self, dir: u32, size: usize) -> Result<&[u8], MemError> {
-
         self.buffer.clear();
 
-
-        if dir < self.range_lower+3 {
-
+        if dir < self.range_lower + 3 {
             io::stdin().read(&mut self.buffer).unwrap();
             //remove intro character
             self.buffer.pop();
-
         } else {
-
-            return Err(MemError::MappedDeviceError(String::from(format!("Tried to read from non-readable address 0x{:08x} in device 'Keyboard'", dir))));
-
+            return Err(MemError::MappedDeviceError(String::from(format!(
+                "Tried to read from non-readable address 0x{:08x} in device 'Keyboard'",
+                dir
+            ))));
         }
 
         Ok(&self.buffer[..size])
-
-        
-
     }
 
     fn write(&mut self, dir: usize, size: usize, contents: &[u8]) -> Result<(), MemError> {
-        
-        if (dir as u32 == self.range_lower+4) && (dir as u32 + size as u32) < self.range_upper { self.mode = contents[0]; return Ok(()) }
-        
-        Err(MemError::MappedDeviceError(String::from(format!("Tried to write to non-writeable address 0x{:08x} in device 'Keyboard'",dir)))) 
+        if (dir as u32 == self.range_lower + 4) && (dir as u32 + size as u32) < self.range_upper {
+            self.mode = contents[0];
+            return Ok(());
+        }
+
+        Err(MemError::MappedDeviceError(String::from(format!(
+            "Tried to write to non-writeable address 0x{:08x} in device 'Keyboard'",
+            dir
+        ))))
     }
-    
 }
 
 /**
  * Creates a Keyboard device implementing MemoryMapped and with the following
  * address ranges
- * 
- * 
+ *
+ *
  * 0x80000008..0x8000000b: Read content
- * 
- * 
+ *
+ *
  * 0x8000000c..0x8000000f: Mode
  */
 pub fn new() -> Keyboard {
-
-    Keyboard { range_lower: 0x80000008, range_upper: 0x8000000f, buffer: Vec::<u8>::new(), mode: 0 }
-
+    Keyboard {
+        range_lower: 0x80000008,
+        range_upper: 0x8000000f,
+        buffer: Vec::<u8>::new(),
+        mode: 0,
+    }
 }
 
 #[test]
@@ -72,7 +72,7 @@ fn integrity() {
 fn write_mode_K() {
     let mut k: Keyboard = new();
 
-    k.write( (k.range_lower+4) as usize, 1, &[0;4]).unwrap();
+    k.write((k.range_lower + 4) as usize, 1, &[0; 4]).unwrap();
 }
 
 #[test]
