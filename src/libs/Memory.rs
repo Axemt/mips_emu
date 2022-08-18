@@ -154,9 +154,9 @@ impl Memory {
 
         let d = dir as usize;
 
-        //Read outside of generated memory, since it is 0-initialized, just return 0
+        //Read outside of generated memory, since it is 0-initialized, just return a 0 word
         if d + size > self.mem_size {
-            return Ok(&[0]);
+            return Ok(&[0,0,0,0]);
         }
 
         for (dev_lower, dev_upper, device) in &mut self.devices {
