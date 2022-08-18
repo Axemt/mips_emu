@@ -1,16 +1,17 @@
-use super::Definitions::Arch;
-use super::Definitions::Arch::{RegNames, OP};
-use super::Definitions::Utils::{Byte, Half, Word};
-use super::Definitions::{Stats, Utils};
-use super::Memory::Memory;
+use crate::libs::Definitions::Arch;
+use crate::libs::Definitions::Arch::{RegNames, OP};
+use crate::libs::Definitions::Utils::{Byte, Half, Word};
+use crate::libs::Definitions::{Stats, Utils};
+use crate::libs::Memory::Memory;
 
-use super::Definitions::Errors::{ExecutionError, HeaderError};
+use crate::libs::Definitions::Errors::{ExecutionError, HeaderError};
 
-use super::Devices::{Console, Interruptor, Keyboard, MemoryMapped};
+use crate::libs::Devices::{Console, Cores, Interruptor, Keyboard, MemoryMapped};
 
-use crate::to_signed;
 use crate::to_signed_cond;
+use crate::{to_signed, Runnable};
 
+use crate::libs::Devices::Cores::CoreTraits;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::sync::Arc;
@@ -107,39 +108,6 @@ impl Core {
     }
 
     /**
-     * Loads a RELF executable into memory and sets PC
-     *
-     * ARGS:
-     *
-     *  path: Path to executable
-     */
-    pub fn load_RELF(&mut self, path: &str) -> Result<(), HeaderError> {
-        match self.mem.load_RELF(path) {
-            Ok(pc) => self.PC = pc,
-            Err(eobj) => return Err(eobj), //propagate
-        }
-
-        Ok(())
-    }
-
-    /**
-     * Loads a raw binary into memory and sets PC
-     *
-     * Note that this starts writing from address 0x00000000
-     * and ignores reserved sections of memory
-     *
-     * ARGS:
-     *
-     *  path: Path to binary file
-     *
-     *  entry: PC to start execution
-     */
-    pub fn load_bin(&mut self, path: &str, entry: u32) -> Result<(), std::io::Error> {
-        self.PC = entry;
-        self.mem.load_bin(path)
-    }
-
-    /**
      * Interrupts current execution and jumps to irqH
      *
      */
@@ -200,87 +168,6 @@ impl Core {
     #[allow(dead_code)]
     pub fn set_IrqHPC(&mut self, irq_pc: u32) {
         self.irq_handler_addr = irq_pc
-    }
-
-    /**
-     * Starts running code at PC.
-     *
-     * Note: this is an infinite loop, please end your code segments via a syscall 10
-     */
-    pub fn run(&mut self) -> Result<(), ExecutionError> {
-        let mut stat = Stats::new();
-
-        let mut iter_flag = false;
-
-        loop {
-            if self.verbose {
-                println!("------------------");
-            }
-
-            self.run_handoff(self.PC)?;
-            stat.cycle_incr();
-            stat.instr_incr();
-
-            //increment pc, set $0 to constant
-            self.PC += 4;
-            self.reg[RegNames::ZERO] = 0;
-
-            // end of instruction routines
-
-            //check if FIN_FLAG is set
-            if (self.flags & Arch::FIN_FLAG) != 0 {
-                if self.verbose {
-                    println!(
-                        "------------------\n[CORE]: FIN_FLAG set; Flags={:08x}",
-                        self.flags
-                    )
-                }
-                stat.mark_finished();
-                break;
-            }
-
-            // flag set if the previous instruction was RFE. We ensure progress by allowing
-            // at least one instruction executes before the interrupt handler fires again.
-            // There's probably a better way to do this
-
-            if iter_flag {
-                iter_flag = false;
-                self.set_flag(true, Arch::IENABLE_FLAG);
-            }
-
-            //else, check if INTERR_FLAG is set in channel only if not privileged
-            if (self.flags & Arch::IENABLE_FLAG) != 0 && (self.flags & Arch::PRVILEGED_FLAG) == 0 {
-                match self.interrupt_ch.try_recv() {
-                    Ok(_) => {
-                        self.set_flag(true, Arch::INTERR_FLAG);
-                    }
-                    Err(_) => {}
-                }
-
-                //interrupt flag set in channel
-                if (self.flags & Arch::INTERR_FLAG) != 0 {
-                    if self.verbose {
-                        println!("[CORE]: INTERR_FLAG set; Flags={:08x}", self.flags)
-                    }
-                    self.set_flag(true, Arch::INTERR_FLAG);
-                    // This is a horrible hack
-                    // This is only needed here because the interrupt happens *after* pc has been incremented, instead of in every interrupt(like syscalls)
-                    self.PC -= 4;
-                    self.interrupt();
-                }
-            }
-
-            if self.IntEnableOnNext {
-                self.IntEnableOnNext = false;
-                iter_flag = true;
-            }
-        }
-
-        if self.verbose {
-            println!("[CORE]: Finished execution in T={} s\n        CPI of {}. Executed {} instructions in {} cycles.",stat.exec_total_time().as_secs_f64(),stat.CPI(),stat.instr_count, stat.cycl_count);
-        }
-
-        Ok(())
     }
 
     #[inline(always)]
@@ -418,7 +305,7 @@ impl Core {
                 res = rt >> rs;
                 self.reg[rd] = res;
             } //srlv
-            OP::R::JARL => {
+            OP::R::JALR => {
                 self.reg[RegNames::RA] = self.PC;
                 self.PC = if rs != 0 { rs - 4 } else { rs };
             } //jalr
@@ -714,13 +601,136 @@ impl Core {
     }
 }
 
+impl CoreTraits::Runnable for Core {
+    /**
+     * Starts running code at PC.
+     *
+     * Note: this is an infinite loop, please end your code segments via a syscall 10
+     */
+    fn run(&mut self) -> Result<(), ExecutionError> {
+        let mut stat = Stats::new();
+
+        let mut iter_flag = false;
+
+        loop {
+            if self.verbose {
+                println!("------------------");
+            }
+
+            self.run_handoff(self.PC)?;
+            stat.cycle_incr();
+            stat.instr_incr();
+
+            //increment pc, set $0 to constant
+            self.PC += 4;
+            self.reg[RegNames::ZERO] = 0;
+
+            // end of instruction routines
+
+            //check if FIN_FLAG is set
+            if (self.flags & Arch::FIN_FLAG) != 0 {
+                if self.verbose {
+                    println!(
+                        "------------------\n[CORE]: FIN_FLAG set; Flags={:08x}",
+                        self.flags
+                    )
+                }
+                stat.mark_finished();
+                break;
+            }
+
+            // flag set if the previous instruction was RFE. We ensure progress by allowing
+            // at least one instruction executes before the interrupt handler fires again.
+            // There's probably a better way to do this
+
+            if iter_flag {
+                iter_flag = false;
+                self.set_flag(true, Arch::IENABLE_FLAG);
+            }
+
+            //else, check if INTERR_FLAG is set in channel only if not privileged
+            if (self.flags & Arch::IENABLE_FLAG) != 0 && (self.flags & Arch::PRVILEGED_FLAG) == 0 {
+                match self.interrupt_ch.try_recv() {
+                    Ok(_) => {
+                        self.set_flag(true, Arch::INTERR_FLAG);
+                    }
+                    Err(_) => {}
+                }
+
+                //interrupt flag set in channel
+                if (self.flags & Arch::INTERR_FLAG) != 0 {
+                    if self.verbose {
+                        println!("[CORE]: INTERR_FLAG set; Flags={:08x}", self.flags)
+                    }
+                    self.set_flag(true, Arch::INTERR_FLAG);
+                    // This is a horrible hack
+                    // This is only needed here because the interrupt happens *after* pc has been incremented, instead of in every interrupt(like syscalls)
+                    self.PC -= 4;
+                    self.interrupt();
+                }
+            }
+
+            if self.IntEnableOnNext {
+                self.IntEnableOnNext = false;
+                iter_flag = true;
+            }
+        }
+
+        if self.verbose {
+            println!("[CORE]: Finished execution in T={} s\n        CPI of {}. Executed {} instructions in {} cycles.",stat.exec_total_time().as_secs_f64(),stat.CPI(),stat.instr_count, stat.cycl_count);
+        }
+
+        Ok(())
+    }
+
+    /**
+     * Loads a RELF executable into memory and sets PC
+     *
+     * ARGS:
+     *
+     *  path: Path to executable
+     */
+    fn load_RELF(&mut self, path: &str) -> Result<(), HeaderError> {
+        match self.mem.load_RELF(path) {
+            Ok(pc) => self.PC = pc,
+            Err(eobj) => return Err(eobj), //propagate
+        }
+
+        Ok(())
+    }
+
+    /**
+     * Loads a raw binary into memory and sets PC
+     *
+     * Note that this starts writing from address 0x00000000
+     * and ignores reserved sections of memory
+     *
+     * ARGS:
+     *
+     *  path: Path to binary file
+     *
+     *  entry: PC to start execution
+     */
+    fn load_bin(&mut self, path: &str, entry: u32) -> Result<(), std::io::Error> {
+        self.PC = entry;
+        self.mem.load_bin(path)
+    }
+}
+
+impl CoreTraits::Privileged for Core {
+    fn set_privilege(&mut self, privilege: bool) {
+        self.mem.set_privileged(privilege);
+        self.set_flag(true, Arch::PRVILEGED_FLAG);
+    }
+}
+
 /**
  *  TESTS
  */
 
 #[test]
 fn basic() {
-    let mut c: Core = Core::new(true);
+    let mut c: Box<dyn Runnable> = Box::new(Core::new(true));
 
     match c.load_RELF("testbins/testingLS.s.relf") {
         Err(e) => {

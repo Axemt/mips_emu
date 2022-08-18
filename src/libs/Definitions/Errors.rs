@@ -1,3 +1,5 @@
+use std::fmt::Formatter;
+
 #[allow(dead_code)]
 #[derive(Debug)]
 pub enum HeaderError {
@@ -51,11 +53,18 @@ pub enum ExecutionError {
     PrivilegeError(String),
     UnrecognizedOPError(String),
     MemError(String),
+    RegisterError(String),
 }
 
 impl From<MemError> for ExecutionError {
     fn from(e: MemError) -> Self {
         ExecutionError::MemError(format!("Propagated MemError: {}", e.to_string()))
+    }
+}
+
+impl From<RegisterError> for ExecutionError {
+    fn from(e: RegisterError) -> Self {
+        ExecutionError::RegisterError(format!("Propagated RegisterError: {}", e.to_string()))
     }
 }
 
@@ -74,11 +83,41 @@ impl std::fmt::Display for ExecutionError {
             ExecutionError::MemError(emsg) => {
                 write!(f, "{emsg}")
             }
+            ExecutionError::RegisterError(emsg) => {
+                write!(f, "{emsg}")
+            }
         }
     }
 }
 
 impl std::error::Error for ExecutionError {}
+
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub enum RegisterError {
+    LockedWithHandle(usize, u32),
+    NotOwned(usize, u32),
+}
+
+impl std::fmt::Display for RegisterError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RegisterError::LockedWithHandle(owner_handle, regno) => {
+                write!(
+                    f,
+                    "The register {regno} is locked by owner instruction with timestamp {owner_handle}"
+                )
+            }
+            RegisterError::NotOwned(owner_handle, regno) => {
+                write!(
+                    f,
+                    "The instruction tried to write to register {regno}, which is owned by the instruction with timestamp {owner_handle}"
+                )
+            }
+        }
+    }
+}
+
+impl std::error::Error for RegisterError {}
 
 #[test]
 fn error_fmt() {

@@ -131,6 +131,13 @@ pub mod RegNames {
 
 pub mod OP {
 
+    #[derive(PartialEq, Eq, Debug, Copy, Clone)]
+    pub enum InstructionType {
+        I,
+        R,
+        J,
+        Special,
+    }
     /*
         OP contains full instructions for special operations, like
         NOP or RFE.
@@ -164,7 +171,7 @@ pub mod OP {
         pub const SRA: u32 = 0b000011;
         pub const SRAV: u32 = 0b000111;
         pub const SRLV: u32 = 0b000110;
-        pub const JARL: u32 = 0b001001;
+        pub const JALR: u32 = 0b001001;
         pub const JR: u32 = 0b001000;
         pub const MFHI: u32 = 0b010000;
         pub const MFLO: u32 = 0b010010;

@@ -26,13 +26,13 @@ impl Memory {
      *
      *  v: Verbose flag
      * **/
-    pub fn new(v: bool) -> Memory {
+    pub fn new(verbose: bool) -> Memory {
         Memory {
             mem_array: vec![0; 0],
             mem_size: 0,
             protected_ranges: Vec::<(u32, u32)>::new(),
             mode_privilege: false,
-            verbose: v,
+            verbose,
             devices: Vec::<(u32, u32, Box<dyn MemoryMapped>)>::new(),
         }
     }
@@ -154,12 +154,9 @@ impl Memory {
 
         let d = dir as usize;
 
-        //TODO: extend mem *after* the device check so we don't extend if not necessary
-        //fake having a 4GB memory by dynamically extending on "OOB" accesses
-        // if we can check devices before this, we can just return uninitialized memory ([0,0,..,0])
-        // instead of having to extend
+        //Read outside of generated memory, since it is 0-initialized, just return 0
         if d + size > self.mem_size {
-            self.extend_mem(d + size - self.mem_size);
+            return Ok(&[0]);
         }
 
         for (dev_lower, dev_upper, device) in &mut self.devices {

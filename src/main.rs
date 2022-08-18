@@ -1,14 +1,23 @@
 #![feature(bigint_helper_methods)]
 
 mod libs;
-use libs::Core::Core;
+
+use libs::Devices::Cores::NonPipelinedCore::Core;
+use std::io::Error;
 use std::panic;
 
 //import macro for pack/unpack
 #[macro_use]
 extern crate structure;
 extern crate clap;
+extern crate core;
 
+use crate::libs::Definitions::Errors::{ExecutionError, HeaderError};
+use crate::libs::Devices::Cores;
+use crate::libs::Devices::Cores::CoreTraits;
+use crate::CoreTraits::Runnable;
+use crate::CoreUniform::{NonPipelined, Pipelined};
+use crate::Cores::{NonPipelinedCore, PipelinedCore};
 use clap::Parser;
 
 #[derive(Parser, Debug)]
@@ -29,6 +38,9 @@ struct Args {
     )]
     verbose: bool,
 
+    #[clap(long, help = "Uses a Pipelined version of Core", takes_value = false)]
+    pipeline: bool,
+
     //TODO: See args.entry block
     #[clap(
         short,
@@ -40,14 +52,45 @@ struct Args {
     entry: String,
 }
 
+enum CoreUniform {
+    NonPipelined(NonPipelinedCore::Core),
+    Pipelined(PipelinedCore::Core),
+}
+
+impl Runnable for CoreUniform {
+    fn run(&mut self) -> Result<(), ExecutionError> {
+        match self {
+            NonPipelined(c) => c.run(),
+            Pipelined(c) => c.run(),
+        }
+    }
+
+    fn load_RELF(&mut self, path: &str) -> Result<(), HeaderError> {
+        match self {
+            NonPipelined(c) => c.load_RELF(path),
+            Pipelined(c) => c.load_RELF(path),
+        }
+    }
+
+    fn load_bin(&mut self, path: &str, entry: u32) -> Result<(), Error> {
+        match self {
+            NonPipelined(c) => c.load_bin(path, entry),
+            Pipelined(c) => c.load_bin(path, entry),
+        }
+    }
+}
+
 #[cfg(not(tarpaulin_include))]
 fn main() {
     let args = Args::parse();
 
     let v = args.verbose;
     let filepath = args.filepath;
-
-    let mut cpu = Box::<Core>::new(Core::new(v));
+    let mut cpu: CoreUniform = if !args.pipeline {
+        NonPipelined(NonPipelinedCore::Core::new(v))
+    } else {
+        Pipelined(PipelinedCore::Core::new(v))
+    };
 
     if filepath.ends_with(".relf") {
         match cpu.load_RELF(&filepath) {
