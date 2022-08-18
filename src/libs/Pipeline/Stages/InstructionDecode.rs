@@ -219,6 +219,7 @@ impl InstructionDecode {
             }
 
             self.control_out_EXOP = (InstructionType::Special, code, emitted_at);
+            return
         }
 
         let func = (code & 0xfc000000) >> 26;
