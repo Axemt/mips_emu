@@ -3,6 +3,7 @@ use super::Definitions::RELFHeaders::{RelfHeader32, SectionHeader32};
 use super::Definitions::Utils::{Byte, Half, Word};
 use super::Devices::MemoryMapped;
 
+use crate::libs::Definitions::Utils;
 use std::fs::File;
 use std::io;
 use std::io::Read;
@@ -70,6 +71,10 @@ impl Memory {
             println!("[MEM]: Changed privilege mode to {}", m);
         }
         self.mode_privilege = m;
+    }
+
+    pub fn get_size(&mut self) -> u32 {
+        self.mem_size as u32
     }
 
     pub fn map_device(
@@ -156,7 +161,7 @@ impl Memory {
 
         //Read outside of generated memory, since it is 0-initialized, just return a 0 word
         if d + size > self.mem_size {
-            return Ok(&[0,0,0,0]);
+            return Ok(&[0, 0, 0, 0][0..size]);
         }
 
         for (dev_lower, dev_upper, device) in &mut self.devices {
@@ -476,7 +481,8 @@ fn privileged_protected_access() {
 
     //correct access
     m.store(0x0000AA00, 4, &[0x69, 0x69, 0x69, 0x66]).unwrap();
-    let _ = m.load(0x0000AA00, 4);
+    let ret = Utils::from_word(m.load(0x0000AA00, 4).unwrap());
+    assert_eq!(0x69696966, ret)
 }
 
 #[test]
@@ -495,4 +501,15 @@ fn device_access() {
 
     //store (mode) from Keyboard
     m.store(0x8000000c, 1, &[1]).unwrap();
+}
+
+#[test]
+fn uninitialized_load_does_not_extend() {
+    let mut m: Memory = Memory::new(true);
+    m.store(0x0000FF00, 2, &[0xBE, 0xEF]).unwrap();
+    let pre_sz = m.get_size();
+    let ret = Utils::from_word(m.load(0xFFFFFFFF, 4).unwrap());
+
+    assert_eq!(ret, 0);
+    assert_eq!(pre_sz, m.get_size());
 }
