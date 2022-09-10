@@ -10,6 +10,7 @@ pub const LO_IDENT: u32 = 34u32;
 
 #[derive(Debug)]
 pub struct Registers {
+    reg_owner_queue: [Vec<usize>; 32],
     reg: [Register; 32],
     HI: Register,
     LO: Register,
@@ -29,6 +30,8 @@ pub struct SuccessfulOwn {
 impl Registers {
     pub fn new(verbose: bool) -> Registers {
         Registers {
+            //Vec<u32> does not impl Copy so [Vec::new(); 32] syntax is not possible :(
+            reg_owner_queue: [Vec::new(),Vec::new(),Vec::new(),Vec::new(),Vec::new(),Vec::new(),Vec::new(),Vec::new(),Vec::new(),Vec::new(),Vec::new(),Vec::new(),Vec::new(),Vec::new(),Vec::new(),Vec::new(),Vec::new(),Vec::new(),Vec::new(),Vec::new(),Vec::new(),Vec::new(),Vec::new(),Vec::new(),Vec::new(),Vec::new(),Vec::new(),Vec::new(),Vec::new(),Vec::new(),Vec::new(),Vec::new()],
             reg: [(0, false, None); 32],
             HI: (0, false, None),
             LO: (0, false, None),
@@ -73,13 +76,21 @@ impl Registers {
             self.HI
         } else if register_number == LO_IDENT {
             self.LO
+        } else if register_number == 0 {
+            return Ok(SuccessfulOwn{ register_number: 0 })
         } else {
             self.reg[register_number as usize]
         };
 
         if reg_contents.1 == true {
             match reg_contents.2 {
-                Some(owner) => Err(RegisterError::LockedWithHandle(owner, register_number)),
+                Some(owner) => {
+                    self.reg_owner_queue[register_number as usize].push(accessor_id);
+                    if self.verbose {
+                        println!("\t[REG]: Register {} is locked by {}; id {} added to Owner Queue", register_number, reg_contents.2.unwrap(), accessor_id)
+                    }
+                    Err(RegisterError::LockedWithHandle(owner, register_number))
+                },
                 None => {
                     panic!(
                         "[REG]::Internal : Register {} marked as in-use but no owner assigned!",
@@ -109,19 +120,31 @@ impl Registers {
             self.HI
         } else if register_number == LO_IDENT {
             self.LO
+        } else if register_number == 0 {
+            return Ok(())
         } else {
             self.reg[register_number as usize]
         };
 
         if reg_contents.1 && reg_contents.2 == Some(accessor_id) {
             if register_number != 0 {
+                let next_owner = self.reg_owner_queue[register_number as usize].pop();
+
                 if self.verbose {
                     println!(
                         "\t[REG]: id {} wrote [{}] to register {} and unlocked",
                         accessor_id, contents, register_number
-                    )
+                    );
+                    if next_owner.is_some() {
+                        println!("\t[REG]: New owner in queue;  id {} successfully locked register; ",next_owner.unwrap())
+                    }
                 }
-                self.reg[register_number as usize] = (contents, false, None);
+
+                self.reg[register_number as usize] = match next_owner {
+                    None => (contents, false, None),
+                    Some(_) => (contents, true, next_owner)
+                };
+
             }
             Ok(())
         } else {
