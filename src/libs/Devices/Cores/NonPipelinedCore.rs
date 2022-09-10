@@ -608,7 +608,7 @@ impl CoreTraits::Runnable for Core {
      * Note: this is an infinite loop, please end your code segments via a syscall 10
      */
     fn run(&mut self) -> Result<(), ExecutionError> {
-        let mut stat = Stats::new();
+        let mut stat = Stats::new(1);
 
         let mut iter_flag = false;
 
@@ -677,7 +677,7 @@ impl CoreTraits::Runnable for Core {
         }
 
         if self.verbose {
-            println!("[CORE]: Finished execution in T={} s\n        CPI of {}. Executed {} instructions in {} cycles.",stat.exec_total_time().as_secs_f64(),stat.CPI(),stat.instr_count, stat.cycl_count);
+            println!("[CORE]: Finished execution in T={} s\n        CPI of {}. Executed {} instructions in {} cycles.", stat.exec_total_time().as_secs_f64(), stat.CPI(), stat.instruction_count, stat.cycle_count);
         }
 
         Ok(())
