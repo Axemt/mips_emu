@@ -31,7 +31,40 @@ impl Registers {
     pub fn new(verbose: bool) -> Registers {
         Registers {
             //Vec<u32> does not impl Copy so [Vec::new(); 32] syntax is not possible :(
-            reg_owner_queue: [Vec::new(),Vec::new(),Vec::new(),Vec::new(),Vec::new(),Vec::new(),Vec::new(),Vec::new(),Vec::new(),Vec::new(),Vec::new(),Vec::new(),Vec::new(),Vec::new(),Vec::new(),Vec::new(),Vec::new(),Vec::new(),Vec::new(),Vec::new(),Vec::new(),Vec::new(),Vec::new(),Vec::new(),Vec::new(),Vec::new(),Vec::new(),Vec::new(),Vec::new(),Vec::new(),Vec::new(),Vec::new()],
+            reg_owner_queue: [
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+            ],
             reg: [(0, false, None); 32],
             HI: (0, false, None),
             LO: (0, false, None),
@@ -67,6 +100,48 @@ impl Registers {
         }
     }
 
+    pub fn delist_owner(&mut self, owner_to_delist: usize) {
+        for register_number in 0..32 {
+            //delist from queues
+            for idx in 0..self.reg_owner_queue[register_number].len() {
+                if self.reg_owner_queue[register_number][idx] == owner_to_delist {
+                    self.reg_owner_queue[register_number].remove(idx);
+                    if self.verbose {
+                        println!(
+                            "[REG]: Delisted id {} from Register queue {}",
+                            owner_to_delist, register_number
+                        )
+                    }
+                    break;
+                }
+            }
+
+            //delist from owned register
+            if Some(owner_to_delist) == self.reg[register_number].2 {
+                let next_owner = self.reg_owner_queue[register_number as usize].pop();
+                let (content, _is_locked, _prev_owner) = self.reg[register_number];
+
+                if self.verbose {
+                    print!(
+                        "[REG]: Delisted id {} from Register ownership",
+                        owner_to_delist
+                    )
+                }
+                if next_owner.is_some() {
+                    self.reg[register_number] = (content, true, next_owner);
+                    if self.verbose {
+                        println!("; New owner is {}", next_owner.unwrap())
+                    }
+                } else {
+                    self.reg[register_number] = (content, false, None);
+                    if self.verbose {
+                        println!()
+                    }
+                }
+            }
+        }
+    }
+
     pub fn lock_for_write(
         &mut self,
         register_number: u32,
@@ -77,7 +152,7 @@ impl Registers {
         } else if register_number == LO_IDENT {
             self.LO
         } else if register_number == 0 {
-            return Ok(SuccessfulOwn{ register_number: 0 })
+            return Ok(SuccessfulOwn { register_number: 0 });
         } else {
             self.reg[register_number as usize]
         };
@@ -87,10 +162,15 @@ impl Registers {
                 Some(owner) => {
                     self.reg_owner_queue[register_number as usize].push(accessor_id);
                     if self.verbose {
-                        println!("\t[REG]: Register {} is locked by {}; id {} added to Owner Queue", register_number, reg_contents.2.unwrap(), accessor_id)
+                        println!(
+                            "\t[REG]: Register {} is locked by {}; id {} added to Owner Queue",
+                            register_number,
+                            reg_contents.2.unwrap(),
+                            accessor_id
+                        )
                     }
                     Err(RegisterError::LockedWithHandle(owner, register_number))
-                },
+                }
                 None => {
                     panic!(
                         "[REG]::Internal : Register {} marked as in-use but no owner assigned!",
@@ -121,7 +201,7 @@ impl Registers {
         } else if register_number == LO_IDENT {
             self.LO
         } else if register_number == 0 {
-            return Ok(())
+            return Ok(());
         } else {
             self.reg[register_number as usize]
         };
@@ -136,15 +216,17 @@ impl Registers {
                         accessor_id, contents, register_number
                     );
                     if next_owner.is_some() {
-                        println!("\t[REG]: New owner in queue;  id {} successfully locked register; ",next_owner.unwrap())
+                        println!(
+                            "\t[REG]: New owner in queue;  id {} successfully locked register; ",
+                            next_owner.unwrap()
+                        )
                     }
                 }
 
                 self.reg[register_number as usize] = match next_owner {
                     None => (contents, false, None),
-                    Some(_) => (contents, true, next_owner)
+                    Some(_) => (contents, true, next_owner),
                 };
-
             }
             Ok(())
         } else {
