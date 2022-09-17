@@ -3,6 +3,7 @@ use crate::libs::Definitions::Arch::{RegNames, OP};
 use crate::libs::Definitions::Utils::{Byte, Half, Word};
 use crate::libs::Definitions::{Stats, Utils};
 use crate::libs::Memory::Memory;
+use std::io;
 
 use crate::libs::Definitions::Errors::{ExecutionError, HeaderError};
 
@@ -28,6 +29,7 @@ pub struct Core {
     EPC: u32,
     IntEnableOnNext: bool,
     verbose: bool,
+    breakpoints: Vec<u32>,
     interrupt_ch: mpsc::Receiver<u32>,
     interrupt_ch_open: Arc<AtomicBool>,
 }
@@ -87,6 +89,7 @@ impl Core {
             EPC: 0,
             IntEnableOnNext: false,
             verbose: v,
+            breakpoints: vec![],
             interrupt_ch: recv,
             interrupt_ch_open: Arc::new(AtomicBool::new(true)),
         };
@@ -141,6 +144,14 @@ impl Core {
         }
     }
 
+    pub fn breakpoint_at(&mut self, bp: u32) {
+        self.breakpoints.push(bp)
+    }
+
+    pub fn set_breakpoint_vec(&mut self, bpv: Vec<u32>) {
+        self.breakpoints = bpv;
+    }
+
     /**
      *  Adds the range proct_low .. proct_high to the set of protected address ranges
      *
@@ -173,6 +184,27 @@ impl Core {
     #[inline(always)]
     fn run_handoff(&mut self, PC: u32) -> Result<(), ExecutionError> {
         //avoid weird tuples in vec::align_to, we know it'll always be aligned
+
+        if self.breakpoints.len() > 0 {
+            let bp_clone = self.breakpoints.clone();
+            //stop interrupts
+            self.interrupt_ch_open.swap(false, Ordering::Relaxed);
+            for idx in 0..bp_clone.len() {
+                let bp = bp_clone[idx];
+                if bp == PC {
+                    //Independent of verbose
+                    println!("[CORE]: Breakpoint triggered @[{:08X}]", PC);
+                    self.breakpoints.remove(idx);
+
+                    io::stdin()
+                        .read_line(&mut String::new())
+                        .expect("[CORE]::Internal: Input failed");
+                    break;
+                }
+            }
+            self.interrupt_ch_open.swap(true, Ordering::Relaxed);
+        }
+
         let code: Word = Utils::from_word(self.mem.load(PC, 4)?);
 
         if self.verbose {

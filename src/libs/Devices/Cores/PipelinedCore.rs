@@ -1,20 +1,15 @@
-use crate::libs::Definitions::Arch;
-use crate::libs::Definitions::Arch::{RegNames, OP};
-use crate::libs::Definitions::Utils::{Byte, Half, Word};
-use crate::libs::Definitions::{Stats, Utils};
-use crate::libs::Memory::Memory;
+use std::io;
 use std::io::Error;
 
-use crate::libs::Definitions::Errors::{ExecutionError, HeaderError, RegisterError};
-
-use crate::libs::Devices::{Console, Interruptor, Keyboard, MemoryMapped};
-
-use crate::to_signed_cond;
-use crate::{to_signed, Runnable};
-
+use crate::libs::Definitions::Arch;
 use crate::libs::Definitions::Arch::OP::InstructionType;
-use crate::libs::Devices::Cores::CoreTraits;
+use crate::libs::Definitions::Arch::{RegNames, OP};
+use crate::libs::Definitions::Errors::{ExecutionError, HeaderError, RegisterError};
+use crate::libs::Definitions::Utils::{Byte, Half, Word};
+use crate::libs::Definitions::{Stats, Utils};
 use crate::libs::Devices::Registers::{Available, Registers, SuccessfulOwn};
+use crate::libs::Devices::{Console, Interruptor, Keyboard, MemoryMapped};
+use crate::libs::Memory::Memory;
 use crate::libs::Pipeline::Pipelined::Pipelined;
 use crate::libs::Pipeline::PipelinedWithHeldMemory::PipelinedWithHeldMemory;
 use crate::libs::Pipeline::Stages::Execution::EX_OUT::{
@@ -25,11 +20,8 @@ use crate::libs::Pipeline::Stages::InstructionDecode::{InstructionDecode, Releas
 use crate::libs::Pipeline::Stages::InstructionFetch::InstructionFetch;
 use crate::libs::Pipeline::Stages::MemoryStage::MemoryStage;
 use crate::libs::Pipeline::Stages::WriteBack::WriteBack;
-use crate::CoreTraits::Privileged;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
-use std::sync::{mpsc, Mutex};
-use std::time::Duration;
+use crate::CoreTraits::{Privileged, Runnable};
+use crate::{to_signed, to_signed_cond};
 
 pub struct Core {
     IF: InstructionFetch,
@@ -39,6 +31,7 @@ pub struct Core {
     pub held_mem: Memory,
     WB: WriteBack,
     verbose: bool,
+    breakpoints: Vec<u32>,
 }
 
 impl Core {
@@ -104,7 +97,16 @@ impl Core {
             held_mem,
             WB,
             verbose,
+            breakpoints: vec![],
         }
+    }
+
+    pub fn breakpoint_at(&mut self, bp: u32) {
+        self.breakpoints.push(bp)
+    }
+
+    pub fn set_breakpoint_vec(&mut self, bpv: Vec<u32>) {
+        self.breakpoints = bpv;
     }
 }
 
@@ -130,6 +132,28 @@ impl Runnable for Core {
             //TODO: Interrupt stuff
             //TICK STEP:
             self.IF.tick_with_mem(&mut self.held_mem)?;
+
+            //Check for breakpoints
+            //TODO: Stop interrupts here
+            if self.breakpoints.len() > 0 {
+                let current_pc = self.IF.get_pc();
+                let bp_clone = self.breakpoints.clone();
+                for idx in 0..bp_clone.len() {
+                    let bp = bp_clone[idx];
+
+                    if bp == current_pc {
+                        //Independent of verbose
+                        println!("[CORE]: Breakpoint triggered @[{:08X}]", current_pc);
+                        self.breakpoints.remove(idx);
+
+                        io::stdin()
+                            .read_line(&mut String::new())
+                            .expect("[CORE]::Internal: Input failed");
+                        break;
+                    }
+                }
+            }
+
             self.ID.tick()?;
 
             //CONTROL : ReleaseBcast

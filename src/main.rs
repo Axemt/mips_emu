@@ -50,6 +50,15 @@ struct Args {
         default_value = ""
     )]
     entry: String,
+
+    #[clap(
+        short,
+        long,
+        help = "Set custom breakpoints, separated by spaces; On PipelinedCore, the breakpoint occurs when the instruction is fetched",
+        required = false,
+        default_value = ""
+    )]
+    breakpoints: String,
 }
 
 enum CoreUniform {
@@ -84,12 +93,23 @@ impl Runnable for CoreUniform {
 fn main() {
     let args = Args::parse();
 
+    let mut bp: Vec<u32> = Vec::new();
+    if args.breakpoints != "" {
+        for s in args.breakpoints.trim().split(' ') {
+            bp.push(h_parse_int(s));
+        }
+    }
+
     let v = args.verbose;
     let filepath = args.filepath;
     let mut cpu: CoreUniform = if !args.pipeline {
-        NonPipelined(NonPipelinedCore::Core::new(v))
+        let mut c = NonPipelinedCore::Core::new(v);
+        c.set_breakpoint_vec(bp);
+        NonPipelined(c)
     } else {
-        Pipelined(PipelinedCore::Core::new(v))
+        let mut c = PipelinedCore::Core::new(v);
+        c.set_breakpoint_vec(bp);
+        Pipelined(c)
     };
 
     if filepath.ends_with(".relf") {
@@ -102,7 +122,6 @@ fn main() {
     } else {
         //raw .bin file
 
-        //TODO: Any way to go into this block if args.entry is present instead of comparing with an arbitrary default?
         if args.entry != "" {
             let s = args.entry;
 
@@ -132,5 +151,13 @@ fn main() {
             panic!("EXECUTION FAILED: {eobj}")
         }
         _ => {}
+    }
+
+    fn h_parse_int(s: &str) -> u32 {
+        if s.starts_with("0X") || s.starts_with("0x") {
+            u32::from_str_radix(s.trim_start_matches("0x").trim_start_matches("0X"), 16).unwrap()
+        } else {
+            s.parse().unwrap()
+        }
     }
 }

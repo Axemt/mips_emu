@@ -72,4 +72,7 @@ impl InstructionFetch {
     pub fn set_pc(&mut self, new_pc: u32) {
         self.pc = new_pc;
     }
+    pub fn get_pc(&mut self) -> u32 {
+        self.pc - 4
+    }
 }
