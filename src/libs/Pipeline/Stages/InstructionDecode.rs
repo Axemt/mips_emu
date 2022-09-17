@@ -25,6 +25,7 @@ pub struct InstructionDecode {
     pub latch_in_WB_contents: EX_OUT,
     pub latch_in_instruction_ID: usize,
     pub control_out_reg_release_bcast: ReleaseBcast,
+    pub control_in_stall: bool,
     verbose: bool,
     pub regs: Registers,
     timestamp: usize,
@@ -41,9 +42,23 @@ pub enum ReleaseBcast {
 impl Pipelined for InstructionDecode {
     fn tick(&mut self) -> Result<(), ExecutionError> {
         //ReleaseBcast step
+        let id = self.timestamp;
+        if self.verbose {
+            println!(
+                "[ID{}]:",
+                if self.control_in_stall {
+                    String::from("")
+                } else {
+                    format!("@{id}")
+                }
+            )
+        }
         match self.latch_in_WB_contents {
             EX_OUT::AwaitingLock(owner, regno) => {
-                panic!("[WB->ID]::Internal : Locked RDest register")
+                panic!(
+                    "[WB->ID]::Internal : AwaitingLock as WB contents! {:?}",
+                    self.latch_in_WB_contents
+                )
             }
             EX_OUT::Value(v) => {
                 let register_number = match self.latch_in_RDest {
@@ -84,11 +99,17 @@ impl Pipelined for InstructionDecode {
             _ => {}
         };
 
-        let id = self.timestamp;
+        if self.control_in_stall {
+            self.control_in_stall = false;
+            if self.verbose {
+                println!("\tControl signal: Stall");
+            }
+            return Ok(());
+        }
         self.timestamp = self.timestamp.wrapping_add(1);
 
         if self.verbose {
-            println!("[ID@{id}]:\n\tDecoding 0x{:08x}", self.latch_in_IR.0);
+            println!("\tDecoding 0x{:08x}", self.latch_in_IR.0);
         }
         //propagate latch signals
         self.latch_out_new_pc = self.latch_in_new_pc;
@@ -126,6 +147,7 @@ impl InstructionDecode {
             latch_in_WB_contents: EX_OUT::NoOutput,
             latch_in_instruction_ID: 0,
             control_out_reg_release_bcast: ReleaseBcast::NoRelease,
+            control_in_stall: false,
             verbose,
             regs,
             timestamp: 0,
@@ -236,6 +258,6 @@ impl InstructionDecode {
         self.latch_out_B = None;
         self.latch_out_I = Some(jump_target);
         self.latch_out_RDest = None;
-        self.control_out_EXOP = (InstructionType::J, code, emitted_at);
+        self.control_out_EXOP = (InstructionType::J, func, emitted_at);
     }
 }

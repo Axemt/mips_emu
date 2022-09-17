@@ -12,11 +12,14 @@ use crate::libs::Devices::{Console, Interruptor, Keyboard, MemoryMapped};
 use crate::to_signed_cond;
 use crate::{to_signed, Runnable};
 
+use crate::libs::Definitions::Arch::OP::InstructionType;
 use crate::libs::Devices::Cores::CoreTraits;
 use crate::libs::Devices::Registers::{Available, Registers, SuccessfulOwn};
 use crate::libs::Pipeline::Pipelined::Pipelined;
 use crate::libs::Pipeline::PipelinedWithHeldMemory::PipelinedWithHeldMemory;
-use crate::libs::Pipeline::Stages::Execution::EX_OUT::AwaitingLock;
+use crate::libs::Pipeline::Stages::Execution::EX_OUT::{
+    AwaitingLock, DoJump, DoJumpWithRA, NoOutput,
+};
 use crate::libs::Pipeline::Stages::Execution::{Execution, EX_OUT};
 use crate::libs::Pipeline::Stages::InstructionDecode::{InstructionDecode, ReleaseBcast};
 use crate::libs::Pipeline::Stages::InstructionFetch::InstructionFetch;
@@ -33,7 +36,7 @@ pub struct Core {
     ID: InstructionDecode,
     EX: Execution,
     MEM: MemoryStage,
-    held_mem: Memory,
+    pub held_mem: Memory,
     WB: WriteBack,
     verbose: bool,
 }
@@ -73,7 +76,8 @@ impl Core {
 
         //regs is newly created, lock should never return Err
         regs.lock_for_write(RegNames::SP as u32, 0).unwrap();
-        regs.write_and_unlock(RegNames::SP as u32, stackbase, 0);
+        regs.write_and_unlock(RegNames::SP as u32, stackbase, 0)
+            .expect("[CORE::Internal]: Constructor failed; success should be guaranteed");
         held_mem.set_privileged(false);
 
         //add basic mapped devices
@@ -104,90 +108,37 @@ impl Core {
     }
 }
 
-impl CoreTraits::Runnable for Core {
+impl Runnable for Core {
     fn run(&mut self) -> Result<(), ExecutionError> {
+        let mut EX_IN_STALL;
+        let mut stat = Stats::new(5);
         loop {
+            EX_IN_STALL = false;
             if self.verbose {
                 println!("--------------------");
             }
 
             if self.EX.control_out_termination {
+                stat.mark_finished();
                 if self.verbose {
                     println!("[CORE]: Termination Flag Set");
                 }
                 break;
-                //when breaking, ensure instructions in MEM and WB have completed
+                //TODO: when breaking, ensure instructions in MEM and WB have completed
             }
 
             //TODO: Interrupt stuff
-
             //TICK STEP:
             self.IF.tick_with_mem(&mut self.held_mem)?;
             self.ID.tick()?;
-            self.EX.tick()?;
-            self.MEM.tick_with_mem(&mut self.held_mem)?;
-            self.WB.tick()?;
-
-            //PROPAGATION STEP
-
-            //propagate: IF->ID
-            self.ID.latch_in_new_pc = self.IF.latch_out_new_pc;
-            self.ID.latch_in_IR = self.IF.latch_out_IR;
-
-            //propagate: WB->ID
-            self.ID.latch_in_RDest = self.WB.latch_out_RDest;
-            self.ID.latch_in_WB_contents = self.WB.latch_out_WB_contents;
-
-            //propagate: ID->EX
-
-            //Are we stalling in EX?
-            match self.EX.latch_out_EX_OUT {
-                AwaitingLock(A_lock, B_lock) => {
-                    if self.verbose {
-                        println!("[CORE]: Stalling EX@{}", self.EX.latch_in_instruction_ID)
-                    }
-                    // The stage is stalling, do not propagate
-                    self.MEM.latch_in_RDest = Some(Ok(SuccessfulOwn { register_number: 0 }));
-                    self.MEM.latch_in_EX_OUT = EX_OUT::NoOutput;
-                }
-                _ => {
-                    //propagate: EX->MEM
-                    self.MEM.latch_in_RDest = self.EX.latch_out_RDest;
-                    self.MEM.latch_in_EX_OUT = self.EX.latch_out_EX_OUT;
-                }
-            }
-
-            self.EX.latch_in_RDest = self.ID.latch_out_RDest;
-            self.EX.latch_in_new_pc = self.ID.latch_out_new_pc;
-            self.EX.latch_in_A = self.ID.latch_out_A;
-            self.EX.latch_in_B = self.ID.latch_out_B;
-            self.EX.latch_in_I = self.ID.latch_out_I;
-            self.EX.latch_in_instruction_ID = self.ID.latch_out_instruction_ID;
-            self.EX.control_in_EXOP = self.ID.control_out_EXOP;
-
-            //propagate EX->MEM
-            //NOTE: Some propagation code is contained in the stall check for EX, see above
-            self.MEM.is_privileged = self.EX.is_privileged;
-            self.MEM.latch_in_instruction_ID = self.EX.latch_out_instruction_ID;
-
-            //propagate MEM->WB
-            self.WB.latch_in_WB = self.MEM.latch_out_WB;
-            self.WB.latch_in_RDest = self.MEM.latch_out_RDest;
-            self.WB.latch_in_instruction_ID = self.MEM.latch_out_instruction_ID;
-
-            //propagate WB->ID
-            self.ID.latch_in_WB_contents = self.WB.latch_out_WB_contents;
-            self.ID.latch_in_RDest = self.WB.latch_out_RDest;
-            self.ID.latch_in_instruction_ID = self.WB.latch_out_instruction_ID;
 
             //CONTROL : ReleaseBcast
-
             // if awaiting a lock on A and/or B, they are held in EX.latch_in_[A,B]
             // if awaiting a lock on RDest, it can be freed at any stage; entering EX, MEM or WB
             match self.ID.control_out_reg_release_bcast {
                 ReleaseBcast::NoRelease => {}
                 ReleaseBcast::Freed(id, regno) => {
-                    if self.verbose {
+                    if self.verbose && regno != 0 {
                         println!("[CORE]: Broadcasting Free of register {regno} owned by {id}")
                     }
                     //Freeing of RDest
@@ -210,10 +161,20 @@ impl CoreTraits::Runnable for Core {
                             register_number: regno,
                         }))
                     }
+
+                    //clear hold values in the pipeline
+                    if let AwaitingLock(optA, optB) = self.WB.latch_in_WB_contents {
+                        if optA == Some((id, regno)) || optB == Some((id, regno)) {
+                            self.WB.latch_in_WB_contents = NoOutput;
+                        }
+                        if self.verbose {
+                            println!("[CORE]: Cleared AwaitingLock from WB_in");
+                        }
+                    }
                 }
                 ReleaseBcast::FreedWithContent(id, regno, v) => {
-                    if self.verbose {
-                        println!("[CORE]: Broadcasting Free of register {regno} owned by {id}")
+                    if self.verbose && regno != 0 {
+                        println!("[CORE]: Broadcasting Free of register {regno} owned by {id} with content {v}")
                     }
                     // Freeing of A, B
                     if Some(Err(RegisterError::LockedWithHandle(id, regno))) == self.EX.latch_in_A {
@@ -243,9 +204,131 @@ impl CoreTraits::Runnable for Core {
                             register_number: regno,
                         }))
                     }
+
+                    //clear hold values in the pipeline
+                    if let AwaitingLock(optA, optB) = self.WB.latch_in_WB_contents {
+                        if optA == Some((id, regno)) || optB == Some((id, regno)) {
+                            self.WB.latch_in_WB_contents = NoOutput;
+                        }
+                        if self.verbose {
+                            println!("[CORE]: Cleared AwaitingLock from WB_in");
+                        }
+                    }
                 }
-                ReleaseBcast::FreedWithContentDouble(id, hi, lo) => {}
+                ReleaseBcast::FreedWithContentDouble(_id, _hi, _lo) => {}
             }
+
+            self.EX.tick()?;
+            self.MEM.tick_with_mem(&mut self.held_mem)?;
+            self.WB.tick()?;
+
+            if self.verbose {
+                println!()
+            }
+
+            //After ReleaseBcast, check if EX has to be stalled or not
+            //Are we stalling in EX OR enforcing a jump?
+            match self.EX.latch_out_EX_OUT {
+                AwaitingLock(_A_lock, _B_lock) => {
+                    if self.verbose {
+                        println!(
+                            "[CORE]: Stalling EX@{}; Reason: {:?}",
+                            self.EX.latch_out_instruction_ID, self.EX.latch_out_EX_OUT
+                        );
+                    }
+                    EX_IN_STALL = true;
+                    self.ID.control_in_stall = true;
+                    self.IF.control_in_stall = true;
+                }
+                DoJump(jtarg) | DoJumpWithRA(jtarg, _) => self.IF.latch_in_new_pc = jtarg,
+                _ => {}
+            }
+
+            //PROPAGATION STEP
+
+            //propagate: IF->ID : only if !EX_IS_STALL
+            if !EX_IN_STALL {
+                self.ID.latch_in_new_pc = self.IF.latch_out_new_pc;
+                self.ID.latch_in_IR = self.IF.latch_out_IR;
+            }
+            //propagate: WB->ID
+            self.ID.latch_in_RDest = self.WB.latch_out_RDest;
+            self.ID.latch_in_WB_contents = self.WB.latch_out_WB_contents;
+
+            //propagate: ID->EX : only if !EX_IS_STALL
+            if !EX_IN_STALL {
+                self.EX.latch_in_RDest = self.ID.latch_out_RDest;
+                self.EX.latch_in_new_pc = self.ID.latch_out_new_pc;
+                self.EX.latch_in_A = self.ID.latch_out_A;
+                self.EX.latch_in_B = self.ID.latch_out_B;
+                self.EX.latch_in_I = self.ID.latch_out_I;
+                self.EX.latch_in_instruction_ID = self.ID.latch_out_instruction_ID;
+                self.EX.control_in_EXOP = self.ID.control_out_EXOP;
+            } else {
+                self.EX.latch_in_instruction_ID = self.EX.latch_out_instruction_ID;
+            }
+            //propagate EX->MEM : only if !EX_IS_STALL
+            //NOTE: Some propagation code is contained in the stall check for EX, see above
+            if !EX_IN_STALL {
+                self.MEM.latch_in_is_privileged = self.EX.latch_out_is_privileged;
+                self.MEM.latch_in_instruction_ID = self.EX.latch_out_instruction_ID;
+                self.MEM.latch_in_RDest = self.EX.latch_out_RDest;
+                self.MEM.latch_in_EX_OUT = self.EX.latch_out_EX_OUT;
+            } else {
+                //self.MEM.latch_in_instruction_ID = 0;
+                self.MEM.latch_in_RDest = None;
+                self.MEM.latch_in_EX_OUT = NoOutput;
+            }
+
+            //propagate EX->IF (for jumps)
+            self.IF.latch_in_is_privileged = self.EX.latch_out_is_privileged;
+            self.IF.latch_in_cond = self.EX.latch_out_cond;
+
+            //if there was a jump, reset the propagation of previous stages
+            if self.EX.latch_out_cond {
+                if self.verbose {
+                    println!("[CORE]: Jump enforced, cleared EX and ID stages");
+                }
+
+                //Clear signals IF->ID
+                self.ID.latch_in_new_pc = 0;
+                self.ID.latch_in_IR = (0, 0);
+
+                //Clear signals ID->EX
+                self.EX.control_in_EXOP = (InstructionType::Special, 0, 0);
+                self.EX.latch_in_A = None;
+                self.EX.latch_in_B = None;
+                self.EX.latch_in_I = None;
+                self.EX.latch_in_RDest = None;
+
+                self.ID.regs.delist_owner(self.EX.latch_in_instruction_ID);
+                self.EX.latch_in_instruction_ID = 0;
+            }
+
+            //propagate MEM->WB
+            self.WB.latch_in_WB_contents = self.MEM.latch_out_WB;
+            self.WB.latch_in_RDest = self.MEM.latch_out_RDest;
+            self.WB.latch_in_instruction_ID = self.MEM.latch_out_instruction_ID;
+
+            //propagate WB->ID
+            self.ID.latch_in_WB_contents = self.WB.latch_out_WB_contents;
+            self.ID.latch_in_RDest = self.WB.latch_out_RDest;
+            self.ID.latch_in_instruction_ID = self.WB.latch_out_instruction_ID;
+
+            //Was there a stall?
+            if EX_IN_STALL && self.verbose {
+                println!("[CORE]: Stall\n\tCleared MEM latch_in\n\tStalled IF\n\tStalled ID");
+            }
+            stat.cycle_incr();
+            // if a jump was not enforced and we are not stalling, we can
+            // assume an instruction has completed
+            if !EX_IN_STALL && !self.EX.latch_out_cond {
+                stat.instr_incr();
+            }
+        }
+
+        if self.verbose {
+            println!("[CORE]: Finished execution in T={} s\n        CPI of {}. Executed {} instructions in {} cycles.", stat.exec_total_time().as_secs_f64(), stat.CPI(), stat.instruction_count, stat.cycle_count);
         }
 
         Ok(())
@@ -253,26 +336,27 @@ impl CoreTraits::Runnable for Core {
 
     fn load_RELF(&mut self, path: &str) -> Result<(), HeaderError> {
         match self.held_mem.load_RELF(path) {
-            Ok(pc) => self.IF.pc = pc,
+            Ok(pc) => self.IF.set_pc(pc),
             Err(eobj) => return Err(eobj), //propagate
         }
 
         Ok(())
     }
 
-    fn load_bin(&mut self, path: &str, entry: u32) -> Result<(), std::io::Error> {
-        self.IF.pc = entry;
+    fn load_bin(&mut self, path: &str, entry: u32) -> Result<(), Error> {
+        self.IF.set_pc(entry);
         self.held_mem.load_bin(path)
     }
 }
 
-impl CoreTraits::Privileged for Core {
+impl Privileged for Core {
     fn set_privilege(&mut self, privilege: bool) {
         if self.verbose {
             println!("[CORE]: External call to set_privilege: {}", privilege)
         }
-        self.EX.is_privileged = privilege;
-        self.MEM.is_privileged = privilege;
+        self.IF.latch_in_is_privileged = privilege;
+        self.EX.latch_out_is_privileged = privilege;
+        self.MEM.latch_in_is_privileged = privilege;
     }
 }
 
@@ -287,6 +371,55 @@ fn basic() {
         }
         Ok(_) => {}
     };
-    c.set_privilege(true); //irqh and jumps not working at the moment, do not rely on syscall 10
+    //avoid depending on a working irqh
+    c.set_privilege(true);
     c.run().unwrap();
 }
+
+#[test]
+fn irqh() {
+    let mut c: Core = Core::new(true);
+    match c.load_RELF("testbins/test_irqh_pipelined_simple.relf") {
+        Err(e) => {
+            panic!("{}", e)
+        }
+        Ok(_) => {}
+    };
+    c.run().unwrap();
+}
+
+#[test]
+fn backwards_jump() {
+    let mut c: Core = Core::new(true);
+
+    let start = 0x00000010;
+    let hlt = [0x42, 0x00, 0x00, 0x10]; //hlt
+    let backj = [0x08, 0x00, 0x00, 0x04]; // jmp -1
+
+    c.held_mem.set_privileged(true);
+    c.held_mem.store(start, 4, &hlt).unwrap();
+    c.held_mem.store(start + 4, 4, &backj).unwrap();
+    c.IF.set_pc(start as u32);
+    c.held_mem.set_privileged(false);
+
+    c.set_privilege(true);
+    c.run().unwrap();
+}
+
+/* WIP
+
+#[test]
+fn long_compute() {
+    let mut c: Core = Core::new(true);
+
+    match c.load_RELF("testbins/perf_test_newcompile.relf") {
+        Err(e) => {
+            panic!("{}", e)
+        }
+        Ok(_) => {}
+    };
+
+    c.run().unwrap();
+}
+
+ */

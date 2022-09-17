@@ -17,7 +17,7 @@ pub struct MemoryStage {
     pub latch_out_WB: EX_OUT,
     pub latch_out_RDest: Option<Result<SuccessfulOwn, RegisterError>>,
     pub latch_out_instruction_ID: usize,
-    pub is_privileged: bool,
+    pub latch_in_is_privileged: bool,
     verbose: bool,
 }
 
@@ -26,7 +26,7 @@ impl PipelinedWithHeldMemory for MemoryStage {
         if self.verbose {
             print!("[MEM@{}]:\n\t", self.latch_in_instruction_ID)
         }
-        mem.set_privileged(self.is_privileged);
+        mem.set_privileged(self.latch_in_is_privileged);
         match &self.latch_in_EX_OUT {
             EX_OUT::LoadFrom(addr, size) => {
                 let val = mem.load(*addr, *size as usize)?;
@@ -90,7 +90,7 @@ impl MemoryStage {
             latch_out_WB: EX_OUT::NoOutput,
             latch_out_RDest: None,
             latch_out_instruction_ID: 0,
-            is_privileged: false,
+            latch_in_is_privileged: false,
             verbose,
         }
     }

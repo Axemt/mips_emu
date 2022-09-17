@@ -6,7 +6,7 @@ use crate::libs::Pipeline::Stages::Execution::EX_OUT;
 use crate::libs::Pipeline::Stages::Execution::EX_OUT::NoOutput;
 
 pub struct WriteBack {
-    pub latch_in_WB: EX_OUT,
+    pub latch_in_WB_contents: EX_OUT,
     pub latch_in_RDest: Option<Result<SuccessfulOwn, RegisterError>>,
     pub latch_in_instruction_ID: usize,
     pub latch_out_WB_contents: EX_OUT,
@@ -17,7 +17,8 @@ pub struct WriteBack {
 
 impl Pipelined for WriteBack {
     fn tick(&mut self) -> Result<(), ExecutionError> {
-        self.latch_out_WB_contents = self.latch_in_WB;
+        self.latch_out_WB_contents = self.latch_in_WB_contents;
+        self.latch_out_instruction_ID = self.latch_in_instruction_ID;
         if self.verbose {
             println!("[WB@{}]", self.latch_in_instruction_ID);
         }
@@ -36,14 +37,16 @@ impl Pipelined for WriteBack {
             self.latch_out_RDest = None;
         }
 
-        if self.latch_in_WB != NoOutput && self.latch_in_RDest.is_some() {
-            println!(
-                "\tEmitted order to write back {:?} to destination register {:?}",
-                self.latch_in_WB,
-                self.latch_in_RDest.expect("").unwrap().register_number
-            );
-        } else {
-            println!()
+        if self.verbose {
+            if self.latch_in_WB_contents != NoOutput && self.latch_in_RDest.is_some() {
+                println!(
+                    "\tEmitted order to write back {:?} to destination register {:?}",
+                    self.latch_in_WB_contents,
+                    self.latch_in_RDest.expect("").unwrap().register_number
+                );
+            } else {
+                println!()
+            }
         }
 
         Ok(())
@@ -53,7 +56,7 @@ impl Pipelined for WriteBack {
 impl WriteBack {
     pub fn new(verbose: bool) -> WriteBack {
         WriteBack {
-            latch_in_WB: EX_OUT::NoOutput,
+            latch_in_WB_contents: EX_OUT::NoOutput,
             latch_in_RDest: None,
             latch_in_instruction_ID: 0,
             latch_out_WB_contents: EX_OUT::NoOutput,

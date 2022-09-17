@@ -23,7 +23,7 @@ pub struct Execution {
     pub latch_out_EX_OUT: EX_OUT,
     pub latch_out_RDest: Option<Result<SuccessfulOwn, RegisterError>>,
     pub latch_out_instruction_ID: usize,
-    pub is_privileged: bool,
+    pub latch_out_is_privileged: bool, // NOT ONLY LATCH OUT, also used for internal privileges
     pub control_out_termination: bool,
     verbose: bool,
     EPC: u32,
@@ -56,6 +56,7 @@ impl Pipelined for Execution {
         }
 
         //TODO: Sign propagation on signed operations (loads/stores, general operations, etc)
+
         let output = match self.control_in_EXOP.0 {
             InstructionType::I => {
                 let A = match self.latch_in_A {
@@ -155,6 +156,22 @@ impl Pipelined for Execution {
 
         self.latch_out_RDest = self.latch_in_RDest;
         self.latch_out_EX_OUT = output;
+        //if the output is DoJump, set cond
+        //OR if we are stalling, clear outs
+        match output {
+            DoJump(_) | DoJumpWithRA(_, _) => {
+                self.latch_out_cond = true;
+                if self.verbose {
+                    println!("\tEnforcing jump : {:?}", output)
+                }
+            }
+            AwaitingLock(_, _) => {
+                self.latch_out_instruction_ID = 0;
+                self.latch_out_cond = false;
+                self.latch_out_RDest = None;
+            }
+            _ => self.latch_out_cond = false,
+        };
         self.latch_out_instruction_ID = self.latch_in_instruction_ID;
         Ok(())
     }
@@ -177,7 +194,7 @@ impl Execution {
             latch_out_instruction_ID: 0,
             control_out_termination: false,
             verbose,
-            is_privileged: false,
+            latch_out_is_privileged: false,
             EPC: 0,
             irq_handler_addr,
         }
@@ -223,14 +240,24 @@ impl Execution {
             }
         };
 
-        if A_lock.is_some() || B_lock.is_some() {
+        if A_lock.is_some() {
             // 'stall', clear rdest
             self.latch_out_RDest = None;
             return Ok(AwaitingLock(A_lock, B_lock));
         }
+        //B only used as source register for compare branch instructions
+        match operation {
+            OP::I::BNE | OP::I::BEQ => {
+                if B_lock.is_some() {
+                    // 'stall', clear rdest
+                    self.latch_out_RDest = None;
+                    return Ok(AwaitingLock(A_lock, B_lock));
+                }
+            }
+            _ => {}
+        }
 
         let imm_sign_positive = (immediate & 0b00000000000000001000000000000000) == 0;
-        self.latch_out_cond = false;
         let out: EX_OUT = match operation {
             OP::I::ADDI => {
                 //using signed, if number is negative subtract
@@ -266,13 +293,12 @@ impl Execution {
             }
             OP::I::BEQ => {
                 if A == B {
-                    self.latch_out_cond = true;
                     if imm_sign_positive {
-                        DoJump(emitted_at.overflowing_add(immediate << 2).0)
+                        DoJump(emitted_at.overflowing_add(immediate << 2).0 + 4)
                     } else {
                         DoJump(
                             emitted_at
-                                .overflowing_sub(to_signed!(immediate << 2, u16))
+                                .overflowing_sub(to_signed!(immediate << 2, u16) + 4)
                                 .0,
                         )
                     }
@@ -282,7 +308,6 @@ impl Execution {
             }
             OP::I::BNE => {
                 if A != B {
-                    self.latch_out_cond = true;
                     if imm_sign_positive {
                         DoJump(emitted_at.overflowing_add(immediate << 2).0)
                     } else {
@@ -399,7 +424,6 @@ impl Execution {
         let A_sign_positive = (A & 0x80000000) == 0;
         let B_sign_positive = (B & 0x80000000) == 0;
 
-        self.latch_out_cond = false;
         let out: EX_OUT = match operation {
             OP::R::ADD => {
                 if A_sign_positive {
@@ -555,8 +579,11 @@ impl Execution {
     ) -> Result<EX_OUT, ExecutionError> {
         let out = match operation {
             OP::SYSCALL => {
-                //TODO: Interrupt? where should the EPC saved? here?
                 self.EPC = emitted_at;
+                if self.verbose {
+                    println!("\tChanged privilege mode to true");
+                }
+                self.latch_out_is_privileged = true;
                 Ok(DoJump(self.irq_handler_addr))
             }
             OP::NOP => {
@@ -570,35 +597,35 @@ impl Execution {
                     // If RFE is called, a previous instruction triggered an interrupt and the restore address should be present
                     println!(
                         "\tRFE: EPC=0x{:08x}; privilege status: {}",
-                        self.EPC, self.is_privileged
+                        self.EPC, self.latch_out_is_privileged
                     );
                 }
 
-                if !self.is_privileged {
+                if !self.latch_out_is_privileged {
                     return Err(ExecutionError::PrivilegeError(String::from("RFE")));
                 }
 
                 // When RFE is called, the new PC is emitted as EX_OUT
-                self.is_privileged = false;
+                self.latch_out_is_privileged = false;
 
                 if self.verbose {
                     println!("\tChanged privilege mode to false");
                 }
-                return Ok(EX_OUT::DoJump(self.EPC));
+                return Ok(DoJump(self.EPC));
             }
             OP::HLT => {
                 if self.verbose {
-                    println!("\tHLT: privilege status: {}", self.is_privileged)
+                    println!("\tHLT: privilege status: {}", self.latch_out_is_privileged)
                 }
 
-                if !self.is_privileged {
+                if !self.latch_out_is_privileged {
                     return Err(ExecutionError::PrivilegeError(String::from("HLT")));
                 }
 
                 //TODO: In non pipelined we close the interrupt channel. we havent decided how interrupts
                 //are done here. Do we mantain the same API?
 
-                self.is_privileged = false;
+                self.latch_out_is_privileged = false;
                 self.control_out_termination = true;
 
                 return Ok(EX_OUT::Abort);

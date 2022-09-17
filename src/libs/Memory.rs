@@ -51,7 +51,7 @@ impl Memory {
     pub fn protect(&mut self, proct_low: u32, proct_high: u32) {
         if self.verbose {
             println!(
-                "[MEM]: Protecting range [0x{:08x}..0x{:08x}]",
+                "[MEM]: Protecting range [0x{:08X}..0x{:08X}]",
                 proct_low, proct_high
             );
         }
