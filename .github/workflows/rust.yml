@@ -30,15 +30,15 @@ jobs:
     - name: Run tests
       run: cargo +nightly test --verbose
     
-    - name: rust-tarpaulin
+    - name: Tarpaulin code coverage
       # You may pin to the exact commit or the version.
       # uses: actions-rs/tarpaulin@60f0b12e5beec09ccca51758913f82d01889151c
       uses: actions-rs/tarpaulin@v0.1.0
       with:
         # The version of cargo-tarpaulin to install
-        version: default
+        version: latest
         # Extra command line arguments passed to cargo-tarpaulin
-        args: '--force-clean --frozen --verbose'
+        args: '-- --force-clean --frozen --verbose'
         # The maximum time in seconds without a response from a test before timeout
         timeout: 60
         # The type of the coverage run [possible values: Tests, Doctests]
