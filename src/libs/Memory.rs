@@ -369,7 +369,7 @@ pub struct Memory {
 fn loading() {
 
     let mut m: Memory = Memory::new(true);
-    match m.load_RELF("src/libs/testbins/parsing_more.s.relf") {
+    match m.load_RELF("testbins/parsing_more.s.relf") {
         Ok(ept) => assert_eq!(ept,0x00400000),
         Err(eobj) => panic!("{eobj}")
     }
@@ -377,7 +377,7 @@ fn loading() {
     drop(m);
 
     let mut m: Memory = Memory::new(false);
-    match m.load_RELF("src/libs/testbins/testingLS.s.relf") {
+    match m.load_RELF("testbins/testingLS.s.relf") {
         Ok(ept) => assert_eq!(ept,0x00400000),
         Err(eobj) => panic!("{eobj}")
     }

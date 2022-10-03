@@ -517,7 +517,7 @@ fn basic() {
 
     let mut c: Core = Core::new(true);
 
-    match c.load_RELF("src/libs/testbins/testingLS.s.relf") {
+    match c.load_RELF("testbins/testingLS.s.relf") {
         Err(e) => { panic!("{}", e) }
         Ok(_) => {}
     }
@@ -547,7 +547,7 @@ fn long_compute() {
 
     let mut c: Core = Core::new(true);
 
-    match c.load_RELF("src/libs/testbins/perf_test.s.relf") {
+    match c.load_RELF("testbins/perf_test_newcompile.relf") {
         Err(e) => { panic!("{}",e) }
         Ok(_) => {}
     };
