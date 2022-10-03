@@ -5,7 +5,7 @@
 *.s
 
 # files used for tests
-/testbins
+#/testbins
 Tests.rs
 *.svg
 perf.data
