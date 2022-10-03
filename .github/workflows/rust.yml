@@ -43,3 +43,6 @@ jobs:
         timeout: 60
         # The type of the coverage run [possible values: Tests, Doctests]
         run-types: Tests
+      env:
+        # Workaround while the action is updated
+        ACTIONS_ALLOW_UNSECURE_COMMANDS: 'true'
