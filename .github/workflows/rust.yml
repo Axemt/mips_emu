@@ -38,7 +38,7 @@ jobs:
         # The version of cargo-tarpaulin to install
         version: latest
         # Extra command line arguments passed to cargo-tarpaulin
-        args: '-- --force-clean --frozen --verbose'
+        args: '--force-clean --frozen --verbose'
         # The maximum time in seconds without a response from a test before timeout
         timeout: 60
         # The type of the coverage run [possible values: Tests, Doctests]
